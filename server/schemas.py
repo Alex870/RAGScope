@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from state import ClusteringSettings, ReductionSettings
+from .state import ClusteringSettings, ReductionSettings
 
 
 class CollectionRequest(BaseModel):

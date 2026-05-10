@@ -209,7 +209,7 @@ It will also surface arbitrary metadata fields as `meta.<field>` columns and mak
 ## Architecture
 
 - `backend.py` is a compatibility shim that exposes `backend:app` for the launcher.
-- `server/` contains the FastAPI backend package, schemas, routes, scoring, caching, and analysis helpers.
+- `server/` contains the FastAPI backend package, schemas, routes, scoring, caching, state models, and analysis helpers.
 - `frontend/` contains the Vite React application.
 - `frontend/src/lib/` contains shared React constants, formatting helpers, and Plotly view-state helpers.
 - `screenshots/` contains README images showing the 2D view, 3D view, and audit report.
@@ -221,7 +221,7 @@ It will also surface arbitrary metadata fields as `meta.<field>` columns and mak
 
 ## Future Extension Points
 
-The state model is centralized in `state.py` so these features can be added later:
+The state model is centralized in `server/state.py` so these features can be added later:
 
 - bookmarks
 - snapshots

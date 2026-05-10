@@ -7,18 +7,15 @@ from typing import Any
 import chromadb
 import numpy as np
 import pandas as pd
-import streamlit as st
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-@st.cache_resource(show_spinner=False)
 def get_client(chroma_path: str) -> chromadb.PersistentClient:
     return chromadb.PersistentClient(path=str(Path(chroma_path).expanduser()))
 
 
-@st.cache_data(show_spinner=False)
 def list_collections(chroma_path: str) -> list[str]:
     client = get_client(chroma_path)
     names: list[str] = []
@@ -27,7 +24,6 @@ def list_collections(chroma_path: str) -> list[str]:
     return sorted(names)
 
 
-@st.cache_data(show_spinner=True)
 def load_collection(chroma_path: str, collection_name: str, max_load_size: int) -> tuple[pd.DataFrame, np.ndarray | None]:
     client = get_client(chroma_path)
     collection = client.get_collection(collection_name)

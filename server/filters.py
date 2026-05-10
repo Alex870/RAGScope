@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import streamlit as st
 
 
 def metadata_columns(frame: pd.DataFrame) -> list[str]:
@@ -19,44 +18,6 @@ def apply_text_filter(frame: pd.DataFrame, query: str) -> pd.DataFrame:
         | frame["title"].fillna("").astype(str).str.casefold().str.contains(needle, regex=False)
     )
     return frame[mask]
-
-
-def render_metadata_filters(frame: pd.DataFrame, saved_filters: dict) -> dict:
-    active: dict = {}
-    if frame.empty:
-        return active
-
-    for column in metadata_columns(frame):
-        values = frame[column].dropna()
-        if values.empty:
-            continue
-        label = column.removeprefix("meta.")
-        if is_date_like(values):
-            dates = parse_dates(values).dropna()
-            if dates.empty:
-                continue
-            min_date = dates.min().date()
-            max_date = dates.max().date()
-            default = saved_filters.get(column) or [str(min_date), str(max_date)]
-            selected = st.sidebar.date_input(label, value=(parse_dates(pd.Series([default[0]])).iloc[0].date(), parse_dates(pd.Series([default[1]])).iloc[0].date()))
-            if isinstance(selected, tuple) and len(selected) == 2:
-                active[column] = [str(selected[0]), str(selected[1])]
-        elif pd.api.types.is_numeric_dtype(values):
-            min_value = float(values.min())
-            max_value = float(values.max())
-            if min_value == max_value:
-                continue
-            default = saved_filters.get(column) or [min_value, max_value]
-            active[column] = list(
-                st.sidebar.slider(label, min_value, max_value, (float(default[0]), float(default[1])))
-            )
-        else:
-            choices = sorted(values.astype(str).unique().tolist())
-            if len(choices) > 100:
-                continue
-            default = [item for item in saved_filters.get(column, choices) if item in choices]
-            active[column] = st.sidebar.multiselect(label, choices, default=default)
-    return active
 
 
 def apply_metadata_filters(frame: pd.DataFrame, active_filters: dict) -> pd.DataFrame:

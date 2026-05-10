@@ -5,7 +5,7 @@ import re
 import shutil
 from pathlib import Path
 
-from state import WorkspaceState, utc_now
+from .state import WorkspaceState, utc_now
 
 
 SAVED_VIEWS_DIR = Path("saved_views")

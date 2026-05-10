@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from sklearn.cluster import KMeans
 
-from state import ClusteringSettings
+from .state import ClusteringSettings
 
 
 def cluster_embeddings(embeddings: np.ndarray, settings: ClusteringSettings) -> tuple[list[str], str]:

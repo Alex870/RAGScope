@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 
-from state import ReductionSettings
+from .state import ReductionSettings
 
 
 def reduce_embeddings(embeddings: np.ndarray, settings: ReductionSettings, dimensions: int = 2) -> pd.DataFrame:

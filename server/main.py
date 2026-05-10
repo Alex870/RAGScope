@@ -23,13 +23,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-logging.getLogger("streamlit.runtime.caching.cache_data_api").setLevel(logging.ERROR)
-
-from clustering import cluster_embeddings, nearest_neighbors
-from persistence import SAVED_VIEWS_DIR, ensure_saved_views_dir, list_views, load_view, rename_view, save_view
-from reducers import reduce_embeddings
-from state import WorkspaceState
-from server.schemas import (
+from .schemas import (
     AnalyzeSelectionRequest,
     BrowseFolderRequest,
     CollectionRequest,
@@ -43,9 +37,14 @@ from server.schemas import (
     SaveViewRequest,
     SearchRequest,
 )
-from topics import label_topics
-from visualization import categorical_color_map
 from sklearn.feature_extraction.text import TfidfVectorizer
+
+from .clustering import cluster_embeddings, nearest_neighbors
+from .persistence import SAVED_VIEWS_DIR, ensure_saved_views_dir, list_views, load_view, rename_view, save_view
+from .reducers import reduce_embeddings
+from .state import WorkspaceState
+from .topics import label_topics
+from .visualization import categorical_color_map
 
 CACHE_VERSION = "analysis-topic-filter-v4"
 DEFAULT_SEMANTIC_EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"

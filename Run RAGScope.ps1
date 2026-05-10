@@ -2,7 +2,6 @@ param(
     [switch]$CreateVenv,
     [switch]$SkipDependencyInstall,
     [switch]$SkipFrontendInstall,
-    [switch]$Streamlit,
     [string]$ChromaPath = "",
     [int]$BackendPort = 8765,
     [int]$FrontendPort = 5173
@@ -13,7 +12,6 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $FrontendRoot = Join-Path $ProjectRoot "frontend"
 $RuntimeConfigPath = Join-Path $FrontendRoot "public\runtime-config.js"
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
-$VenvStreamlit = Join-Path $ProjectRoot ".venv\Scripts\streamlit.exe"
 
 function Test-PortAvailable {
     param([int]$Port)
@@ -38,7 +36,6 @@ function Get-AvailablePort {
 }
 
 Set-Location $ProjectRoot
-$env:STREAMLIT_BROWSER_GATHER_USAGE_STATS = "false"
 
 if ($CreateVenv -or -not (Test-Path $VenvPython)) {
     python -m venv (Join-Path $ProjectRoot ".venv")
@@ -53,17 +50,8 @@ if ($ChromaPath.Trim()) {
     $env:RAGSCOPE_CHROMA_PATH = $ChromaPath
 }
 
-if ($Streamlit) {
-    $StreamlitPrototype = Join-Path $ProjectRoot "POC\streamlit-prototype\app.py"
-    if (-not (Test-Path $StreamlitPrototype)) {
-        throw "The legacy Streamlit prototype is not part of the tracked app. Restore or create POC\streamlit-prototype before using -Streamlit."
-    }
-    & $VenvStreamlit run $StreamlitPrototype
-    exit $LASTEXITCODE
-}
-
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    throw "Node.js/npm is required for the React UI. Install Node.js LTS, or run with -Streamlit for the legacy Streamlit UI."
+    throw "Node.js/npm is required for the React UI. Install Node.js LTS."
 }
 
 if (-not $SkipFrontendInstall) {
@@ -92,7 +80,7 @@ Set-Content -LiteralPath $RuntimeConfigPath -Encoding UTF8 -Value "window.RAGSCO
 $BackendArgs = @(
     "-NoExit",
     "-Command",
-    "Set-Location '$ProjectRoot'; `$env:STREAMLIT_BROWSER_GATHER_USAGE_STATS='false'; & '$VenvPython' -m uvicorn backend:app --host 127.0.0.1 --port $BackendPort"
+    "Set-Location '$ProjectRoot'; & '$VenvPython' -m uvicorn backend:app --host 127.0.0.1 --port $BackendPort"
 )
 
 Write-Host "Starting FastAPI backend at $BackendUrl"
