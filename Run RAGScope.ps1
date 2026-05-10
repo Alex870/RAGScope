@@ -35,6 +35,18 @@ function Get-AvailablePort {
     return $Port
 }
 
+function Stop-BackendProcess {
+    if ($script:BackendProcess -and -not $script:BackendProcess.HasExited) {
+        Stop-Process -Id $script:BackendProcess.Id -Force
+        try {
+            Wait-Process -Id $script:BackendProcess.Id -Timeout 5 -ErrorAction Stop
+        }
+        catch {
+            Write-Warning "Backend process $($script:BackendProcess.Id) did not exit cleanly within 5 seconds."
+        }
+    }
+}
+
 Set-Location $ProjectRoot
 
 if ($CreateVenv -or -not (Test-Path $VenvPython)) {
@@ -77,14 +89,22 @@ $RuntimeConfig = @{
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $RuntimeConfigPath) | Out-Null
 Set-Content -LiteralPath $RuntimeConfigPath -Encoding UTF8 -Value "window.RAGSCOPE_CONFIG = $RuntimeConfig; window.CHROMADB_VISUALIZER_CONFIG = window.RAGSCOPE_CONFIG;"
 
-$BackendArgs = @(
-    "-NoExit",
-    "-Command",
-    "Set-Location '$ProjectRoot'; & '$VenvPython' -m uvicorn backend:app --host 127.0.0.1 --port $BackendPort"
-)
-
 Write-Host "Starting FastAPI backend at $BackendUrl"
-$BackendProcess = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList $BackendArgs
+$BackendArgs = @(
+    "-m",
+    "uvicorn",
+    "backend:app",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "$BackendPort"
+)
+$script:BackendProcess = Start-Process -FilePath $VenvPython -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru -ArgumentList $BackendArgs
+$ExitEvent = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+    if ($script:BackendProcess -and -not $script:BackendProcess.HasExited) {
+        Stop-Process -Id $script:BackendProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+}
 
 try {
     Write-Host "Starting React UI at $FrontendUrl"
@@ -92,8 +112,10 @@ try {
     npx vite --host 127.0.0.1 --port $FrontendPort --strictPort
 }
 finally {
-    if ($BackendProcess -and -not $BackendProcess.HasExited) {
-        Stop-Process -Id $BackendProcess.Id -Force
+    if ($ExitEvent) {
+        Unregister-Event -SourceIdentifier PowerShell.Exiting -ErrorAction SilentlyContinue
+        Remove-Job -Id $ExitEvent.Id -Force -ErrorAction SilentlyContinue
     }
+    Stop-BackendProcess
     Set-Location $ProjectRoot
 }
