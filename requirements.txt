@@ -1,0 +1,13 @@
+streamlit>=1.39
+streamlit-javascript>=0.1.5
+fastapi>=0.115
+uvicorn[standard]>=0.30
+chromadb>=1.0
+sentence-transformers>=3.0
+pandas>=2.2
+numpy>=1.26
+plotly>=5.24
+umap-learn>=0.5
+scikit-learn>=1.5
+hdbscan>=0.8; platform_system != "Windows"
+pydantic>=2.8
