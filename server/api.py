@@ -1,0 +1,558 @@
+from __future__ import annotations
+
+import json
+import logging
+import urllib.error
+import urllib.request
+import uuid
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
+import chromadb
+import numpy as np
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+from .config import DEFAULT_SEMANTIC_EMBEDDING_MODEL
+from .persistence import SAVED_VIEWS_DIR, ensure_saved_views_dir, list_views, load_view, rename_view, save_view
+from .schemas import (
+    AnalyzeSelectionRequest,
+    BrowseFolderRequest,
+    CollectionRequest,
+    DatasetRequest,
+    DocumentRequest,
+    LlmAuditInterpretRequest,
+    LlmModelsRequest,
+    LlmQueryGenerationRequest,
+    RenameViewRequest,
+    RetrievalExperimentRequest,
+    SaveViewRequest,
+    SearchRequest,
+)
+from .services.analysis_service import (
+    date_ranges,
+    keyword_summary,
+    load_selected_documents,
+    metadata_commonality,
+    representative_rows,
+    value_distribution,
+)
+from .services.cache_service import dataset_cache_key, load_or_compute_projection, memory_cache_get, memory_cache_set
+from .services.frame_service import dataframe_records, empty_dataset_response, load_collection_frame, metadata_fields, topic_records
+from .services.llm_service import (
+    extract_context_length,
+    llm_chat_completion,
+    llm_chat_completion_result,
+    llm_output_diagnostics,
+    parse_json_object,
+    shrink_for_llm,
+)
+from .services.path_service import collection_signature, read_collection_names_from_sqlite, resolve_chroma_path
+from .services.search_service import (
+    collection_embedding_dim,
+    embed_semantic_query,
+    score_candidate_documents,
+    semantic_search_candidate_ids,
+    unique_strings,
+)
+from .state import WorkspaceState
+from .visualization import categorical_color_map
+
+
+LOGGER = logging.getLogger(__name__)
+
+app = FastAPI(title="RAGScope API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/api/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/api/collections")
+def collections(request: CollectionRequest) -> dict[str, Any]:
+    requested_path = Path(request.chroma_path).expanduser()
+    path, validation = resolve_chroma_path(requested_path)
+    if not validation["valid"]:
+        return {"collections": [], "validation": validation, **validation}
+    try:
+        client = chromadb.PersistentClient(path=str(path))
+        names = [item if isinstance(item, str) else item.name for item in client.list_collections()]
+    except Exception as exc:
+        message = str(exc) or exc.__class__.__name__
+        names = read_collection_names_from_sqlite(path)
+        if names:
+            return {
+                "collections": sorted(names),
+                "validation": validation,
+                "resolved_path": str(path),
+                "warning": f"ChromaDB client inspection failed, but collections were recovered from chroma.sqlite3: {message}",
+                **validation,
+            }
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not read ChromaDB at {path}: {message}. "
+                "Confirm the folder contains an accessible chroma.sqlite3 file and is not locked by another process."
+            ),
+        ) from exc
+    return {"collections": sorted(names), "validation": validation, "resolved_path": str(path), **validation}
+
+
+@app.post("/api/browse-folder")
+def browse_folder(request: BrowseFolderRequest) -> dict[str, Any]:
+    start_path = Path(request.start_path or ".").expanduser()
+    if not start_path.exists():
+        start_path = Path.cwd()
+    if start_path.is_file():
+        start_path = start_path.parent
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(
+            title="Select ChromaDB folder",
+            initialdir=str(start_path.resolve()),
+            mustexist=True,
+        )
+        root.destroy()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Folder picker could not be opened: {exc}") from exc
+    if not selected:
+        return {"selected_path": ""}
+    resolved_path, validation = resolve_chroma_path(Path(selected).expanduser())
+    return {
+        "selected_path": selected,
+        "resolved_path": str(resolved_path),
+        "validation": validation,
+        **validation,
+    }
+
+
+@app.post("/api/dataset")
+def dataset(request: DatasetRequest) -> dict[str, Any]:
+    if not request.collection_name:
+        raise HTTPException(status_code=400, detail="A collection must be selected.")
+    path, validation = resolve_chroma_path(Path(request.chroma_path).expanduser())
+    if not validation["valid"]:
+        raise HTTPException(status_code=400, detail=validation["message"])
+
+    signature = collection_signature(path, request.collection_name)
+    cache_key = dataset_cache_key(path, request, signature)
+    cached = memory_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    frame, embeddings = load_collection_frame(path, request.collection_name, request.max_load_size)
+    if frame.empty:
+        response = empty_dataset_response(validation)
+        memory_cache_set(cache_key, response)
+        return response
+    if embeddings is None or len(embeddings) != len(frame):
+        frame["x"] = 0.0
+        frame["y"] = 0.0
+        frame["z"] = 0.0
+        frame["cluster"] = "missing_embeddings"
+        frame["topic_label"] = "Missing embeddings"
+        topics: dict[str, dict[str, Any]] = {}
+        clusterer = "missing"
+    else:
+        dimensions = 3 if request.chart_view == "3D" else 2
+        projection = load_or_compute_projection(cache_key, frame, embeddings, request, dimensions)
+        coords = projection["coords"]
+        frame["x"] = coords["x"].values
+        frame["y"] = coords["y"].values
+        if "z" in coords:
+            frame["z"] = coords["z"].values
+        labels = projection["labels"]
+        clusterer = projection["clusterer"]
+        frame["cluster"] = labels
+        frame["topic_label"] = projection["topic_labels"]
+        topics = projection["topics"]
+
+    color_map = categorical_color_map(frame["cluster"].fillna("").astype(str).tolist())
+    frame.insert(0, "cluster_color", frame["cluster"].astype(str).map(color_map).fillna(""))
+    rows = dataframe_records(frame.drop(columns=["document"], errors="ignore"))
+    response = {
+        "rows": rows,
+        "topics": topic_records(topics),
+        "cluster_color_map": color_map,
+        "metadata_fields": metadata_fields(frame),
+        "metrics": {
+            "loaded": len(frame),
+            "clusters": len(set(frame["cluster"].astype(str))),
+            "embedding_dim": int(embeddings.shape[1]) if embeddings is not None and embeddings.ndim == 2 else None,
+            "clusterer": clusterer,
+        },
+        "validation": validation,
+        "cache": {"memory": False, "projection": True},
+    }
+    memory_cache_set(cache_key, response)
+    return response
+
+
+@app.post("/api/document")
+def document(request: DocumentRequest) -> dict[str, Any]:
+    if not request.collection_name:
+        raise HTTPException(status_code=400, detail="A collection must be selected.")
+    path, validation = resolve_chroma_path(Path(request.chroma_path).expanduser())
+    if not validation["valid"]:
+        raise HTTPException(status_code=400, detail=validation["message"])
+    try:
+        collection = chromadb.PersistentClient(path=str(path)).get_collection(request.collection_name)
+        result = collection.get(ids=[request.id], include=["documents", "metadatas"])
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Document lookup failed: {exc}") from exc
+    ids = result.get("ids") or []
+    if not ids:
+        raise HTTPException(status_code=404, detail="Document not found")
+    documents = result.get("documents") or [""]
+    metadatas = result.get("metadatas") or [{}]
+    return {
+        "id": str(ids[0]),
+        "document": str(documents[0] or ""),
+        "metadata": metadatas[0] if isinstance(metadatas[0], dict) else {},
+    }
+
+
+@app.post("/api/analyze-selection")
+def analyze_selection(request: AnalyzeSelectionRequest) -> dict[str, Any]:
+    selected_ids = [str(item) for item in request.selected_ids if str(item).strip()]
+    if not selected_ids:
+        raise HTTPException(status_code=400, detail="Select one or more points or rows before analyzing.")
+    dataset_response = dataset(DatasetRequest(**request.model_dump(exclude={"selected_ids"})))
+    rows = dataset_response.get("rows") or []
+    if not rows:
+        raise HTTPException(status_code=400, detail="No dataset rows are available for analysis.")
+
+    selected_set = set(selected_ids)
+    selected_rows = [row for row in rows if str(row.get("id")) in selected_set]
+    if not selected_rows:
+        raise HTTPException(status_code=404, detail="Selected ids were not found in the loaded dataset.")
+
+    selected_docs = load_selected_documents(request, selected_ids[:200])
+    selected_texts = [
+        selected_docs.get(str(row.get("id")), "") or str(row.get("preview") or "")
+        for row in selected_rows[:500]
+    ]
+    background_texts = [str(row.get("preview") or "") for row in rows if str(row.get("id")) not in selected_set][:1000]
+
+    return {
+        "selected_count": len(selected_rows),
+        "total_count": len(rows),
+        "coverage_percent": round((len(selected_rows) / max(1, len(rows))) * 100, 2),
+        "keywords": keyword_summary(selected_texts, background_texts),
+        "common_metadata": metadata_commonality(selected_rows, rows),
+        "dominant_clusters": value_distribution(selected_rows, rows, "cluster", limit=12),
+        "dominant_topics": value_distribution(selected_rows, rows, "topic_label", limit=12),
+        "source_distribution": value_distribution(selected_rows, rows, "source", limit=12),
+        "date_ranges": date_ranges(selected_rows),
+        "representative_chunks": representative_rows(selected_rows),
+    }
+
+
+@app.post("/api/semantic-search")
+def semantic_search(request: SearchRequest) -> dict[str, Any]:
+    if not request.collection_name:
+        raise HTTPException(status_code=400, detail="A collection must be selected.")
+    if not request.query.strip():
+        return {"ids": []}
+    try:
+        path, validation = resolve_chroma_path(Path(request.chroma_path).expanduser())
+        if not validation["valid"]:
+            raise ValueError(validation["message"])
+        collection = chromadb.PersistentClient(path=str(path)).get_collection(request.collection_name)
+        expected_dim = collection_embedding_dim(collection)
+        query_embedding = embed_semantic_query(request.query)
+        actual_dim = len(query_embedding)
+        if expected_dim is not None and actual_dim != expected_dim:
+            raise ValueError(
+                f"Semantic search embedding dimension mismatch. "
+                f"Collection expects {expected_dim} dimensions, but "
+                f"{DEFAULT_SEMANTIC_EMBEDDING_MODEL} produced {actual_dim}. "
+                "Use the same embedding model that created this ChromaDB collection."
+            )
+        candidate_ids = unique_strings(request.candidate_ids)
+        if candidate_ids:
+            result_ids = semantic_search_candidate_ids(collection, query_embedding, candidate_ids, request.top_k)
+            return {
+                "ids": result_ids,
+                "embedding_model": DEFAULT_SEMANTIC_EMBEDDING_MODEL,
+                "embedding_dim": len(query_embedding),
+                "searched_candidate_count": len(candidate_ids),
+            }
+        result = collection.query(query_embeddings=[query_embedding], n_results=max(1, request.top_k))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Semantic search failed: {exc}") from exc
+    ids = result.get("ids") or [[]]
+    return {
+        "ids": [str(item) for item in ids[0]],
+        "embedding_model": DEFAULT_SEMANTIC_EMBEDDING_MODEL,
+        "embedding_dim": len(query_embedding),
+    }
+
+
+@app.post("/api/retrieval-experiment")
+def retrieval_experiment(request: RetrievalExperimentRequest) -> dict[str, Any]:
+    if not request.collection_name:
+        raise HTTPException(status_code=400, detail="A collection must be selected.")
+    if not request.query.strip():
+        return {"ids": [], "results": [], "histogram": [], "scores": []}
+    try:
+        path, validation = resolve_chroma_path(Path(request.chroma_path).expanduser())
+        if not validation["valid"]:
+            raise ValueError(validation["message"])
+        collection = chromadb.PersistentClient(path=str(path)).get_collection(request.collection_name)
+        expected_dim = collection_embedding_dim(collection)
+        query_embedding = embed_semantic_query(request.query)
+        actual_dim = len(query_embedding)
+        if expected_dim is not None and actual_dim != expected_dim:
+            raise ValueError(
+                f"Retrieval experiment embedding dimension mismatch. "
+                f"Collection expects {expected_dim} dimensions, but "
+                f"{DEFAULT_SEMANTIC_EMBEDDING_MODEL} produced {actual_dim}. "
+                "Use the same embedding model that created this ChromaDB collection."
+            )
+        scored = score_candidate_documents(
+            collection=collection,
+            query_embedding=query_embedding,
+            candidate_ids=unique_strings(request.candidate_ids),
+            top_k=request.top_k,
+            histogram_bins=request.histogram_bins,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Retrieval experiment failed: {exc}") from exc
+
+    return {
+        **scored,
+        "query": request.query,
+        "mode": request.mode,
+        "embedding_model": DEFAULT_SEMANTIC_EMBEDDING_MODEL,
+        "embedding_dim": len(query_embedding),
+    }
+
+
+@app.post("/api/llm/generate-audit-queries")
+def generate_audit_queries(request: LlmQueryGenerationRequest) -> dict[str, Any]:
+    if request.provider.provider == "Disabled":
+        return {"queries": request.existing_queries[: request.query_count], "raw": ""}
+    prompt = {
+        "collection": request.collection_name,
+        "existing_queries": request.existing_queries,
+        "sample_chunks": request.sample_chunks[:24],
+        "instructions": (
+            "Generate diverse benchmark queries for evaluating a podcast RAG vector database. "
+            "Cover factual retrieval, broad themes, speaker viewpoint, hierarchy summaries, and edge cases. "
+            "Return strict JSON only: {\"queries\":[\"...\"]}."
+        ),
+    }
+    raw = llm_chat_completion(
+        request.provider,
+        [
+            {"role": "system", "content": "You generate concise RAG benchmark queries and return strict JSON."},
+            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+        ],
+        temperature=0.35,
+    )
+    parsed = parse_json_object(raw)
+    queries = [str(item).strip() for item in parsed.get("queries", []) if str(item).strip()]
+    return {"queries": queries[: request.query_count], "raw": raw}
+
+
+@app.post("/api/llm/models")
+def llm_models(request: LlmModelsRequest) -> dict[str, Any]:
+    if request.provider.provider == "Disabled":
+        return {"models": []}
+    base_url = str(request.provider.base_url or "").strip().rstrip("/")
+    if not base_url:
+        raise HTTPException(status_code=400, detail="LLM base URL is required.")
+    headers = {"Content-Type": "application/json"}
+    api_key = str(request.provider.api_key or "").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    api_request = urllib.request.Request(f"{base_url}/models", headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(api_request, timeout=20) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=400, detail=f"Model lookup failed: {detail}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Model lookup failed: {exc}") from exc
+    models = []
+    model_details: dict[str, Any] = {}
+    for item in body.get("data", []):
+        if isinstance(item, dict) and item.get("id"):
+            model_id = str(item["id"])
+            models.append(model_id)
+            model_details[model_id] = {
+                "context_length": extract_context_length(item),
+                "raw": item,
+            }
+        elif isinstance(item, str):
+            models.append(item)
+            model_details[item] = {"context_length": None, "raw": item}
+    return {"models": sorted(set(models)), "model_details": model_details}
+
+
+@app.post("/api/llm/interpret-audit")
+def interpret_audit(request: LlmAuditInterpretRequest) -> dict[str, Any]:
+    if request.provider.provider == "Disabled":
+        return {"enabled": False}
+    compact_report = deepcopy(request.audit_report)
+    compact_report.pop("raw", None)
+    compact_report = shrink_for_llm(compact_report)
+    prompt = {
+        "audit_report": compact_report,
+        "contexts": shrink_for_llm(request.contexts[:12]),
+        "context_policy": "limited metadata/previews only" if request.limit_context else "full retrieved chunk text allowed",
+        "instructions": (
+            "Interpret this deterministic RAG quality audit. Judge retrieval usefulness, explain likely root causes, "
+            "and suggest concrete pipeline improvements. Return strict JSON with keys: summary, strengths, risks, "
+            "recommended_actions, query_judgements. query_judgements should include query, rating_1_to_5, and note."
+        ),
+    }
+    result = llm_chat_completion_result(
+        request.provider,
+        [
+            {"role": "system", "content": "You are a careful RAG evaluation analyst. Return strict JSON only."},
+            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+        ],
+        temperature=0.2,
+    )
+    raw = result["content"]
+    parsed = parse_json_object(raw)
+    parsed["enabled"] = True
+    parsed["raw"] = raw
+    parsed["diagnostics"] = llm_output_diagnostics(raw, parsed, result)
+    return parsed
+
+
+@app.post("/api/neighbors")
+def neighbors(request: DatasetRequest, row_index: int, top_k: int = 8) -> dict[str, Any]:
+    path, validation = resolve_chroma_path(Path(request.chroma_path).expanduser())
+    if not validation["valid"]:
+        raise HTTPException(status_code=400, detail=validation["message"])
+    frame, embeddings = load_collection_frame(path, request.collection_name, request.max_load_size)
+    if embeddings is None:
+        return {"rows": []}
+    from .clustering import nearest_neighbors
+
+    indices = nearest_neighbors(embeddings, row_index, top_k)
+    neighbors_frame = frame[frame["row_index"].isin(indices)][["id", "source", "title", "preview"]]
+    return {"rows": dataframe_records(neighbors_frame)}
+
+
+@app.get("/api/views")
+def saved_views() -> dict[str, Any]:
+    ensure_saved_views_dir()
+    views = []
+    for path in list_views():
+        try:
+            state = load_view(path)
+        except Exception:
+            continue
+        views.append(
+            {
+                "filename": path.name,
+                "file": path.name,
+                "path": str(path),
+                "id": state.id,
+                "name": state.name,
+                "description": state.description,
+                "timestamp": state.timestamp,
+                "collection_name": state.collection_name,
+                "state": state.to_dict(),
+            }
+        )
+    return {"views": views}
+
+
+@app.post("/api/views")
+def save_workspace(request: SaveViewRequest) -> dict[str, Any]:
+    payload = react_state_to_workspace(request.state)
+    payload["name"] = request.name or payload.get("name") or "Untitled View"
+    payload["description"] = request.description or payload.get("description") or ""
+    state = WorkspaceState.from_dict(payload)
+    if not state.id:
+        state.id = str(uuid.uuid4())
+    path = save_view(state)
+    return {"filename": path.name, "file": path.name, "path": str(path), "state": state.to_dict()}
+
+
+@app.delete("/api/views/{filename}")
+def delete_workspace(filename: str) -> dict[str, str]:
+    path = (SAVED_VIEWS_DIR / filename).resolve()
+    root = ensure_saved_views_dir().resolve()
+    if path.parent != root or not path.exists():
+        raise HTTPException(status_code=404, detail="Saved view not found")
+    path.unlink()
+    return {"status": "deleted"}
+
+
+@app.put("/api/views/{filename}/rename")
+def rename_workspace(filename: str, request: RenameViewRequest) -> dict[str, Any]:
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="A view name is required.")
+    path = (SAVED_VIEWS_DIR / filename).resolve()
+    root = ensure_saved_views_dir().resolve()
+    if path.parent != root or not path.exists():
+        raise HTTPException(status_code=404, detail="Saved view not found")
+    new_path = rename_view(path, request.name.strip())
+    state = load_view(new_path)
+    return {
+        "filename": new_path.name,
+        "file": new_path.name,
+        "path": str(new_path),
+        "state": state.to_dict(),
+    }
+
+
+def react_state_to_workspace(payload: dict[str, Any]) -> dict[str, Any]:
+    """Translate the React client state into the backend's portable workspace shape."""
+    sidebar = payload.get("sidebar") or {}
+    reduction = {
+        "method": sidebar.get("reductionMethod", "UMAP"),
+        "n_neighbors": sidebar.get("neighbors", 15),
+        "min_dist": sidebar.get("minDist", 0.1),
+        "use_sampling": sidebar.get("sampling", True),
+        "sample_size": sidebar.get("maxLoad", payload.get("max_load_size", 10000)),
+    }
+    clustering = {
+        "method": sidebar.get("clusteringMethod", "Auto"),
+        "kmeans_clusters": sidebar.get("clusterCount", 8),
+        "hdbscan_min_cluster_size": sidebar.get("minClusterSize", 8),
+    }
+    return {
+        **payload,
+        "chroma_path": payload.get("chroma_path", "./chroma"),
+        "collection_name": payload.get("collection_name", ""),
+        "max_load_size": sidebar.get("maxLoad", payload.get("max_load_size", 10000)),
+        "chart_view": "3D" if int(sidebar.get("dimensions", 2) or 2) == 3 else "2D",
+        "reduction": reduction,
+        "clustering": clustering,
+        "color_mode": sidebar.get("colorMode", "cluster"),
+        "text_search_query": sidebar.get("textSearch", ""),
+        "semantic_search_query": sidebar.get("semanticSearch", ""),
+        "semantic_top_k": sidebar.get("semanticTopK", 10),
+        "selected_ids": payload.get("selected_points", payload.get("selected_ids", [])),
+        "highlighted_ids": payload.get("highlighted_ids", []),
+        "highlighted_neighbors": payload.get("highlighted_neighbors", []),
+        "plot_view": payload.get("plot_relayout", payload.get("plot_view", {})),
+        "popup_delay_seconds": sidebar.get("popupDelay", 1.0),
+        "popups_enabled": sidebar.get("hoverEnabled", True),
+        "table_height": payload.get("table_height", 280),
+        "sidebar_settings": sidebar,
+    }

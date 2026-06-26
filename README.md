@@ -31,7 +31,7 @@ Use the Windows launcher:
 .\Run RAGScope.ps1 -CreateVenv
 ```
 
-That script creates or updates the Python virtual environment, installs the React packages, starts the FastAPI backend, writes the runtime config used by the browser UI, and starts the React/Vite frontend. It defaults to backend port `8765` and frontend port `5173`, but automatically moves to the next open ports if another copied instance is already running.
+The root script is a compatibility wrapper around [`scripts/Run RAGScope.ps1`](scripts/Run%20RAGScope.ps1). It creates or updates the Python virtual environment, installs the React packages, starts the FastAPI backend, writes the runtime config used by the browser UI, and starts the React/Vite frontend. It defaults to backend port `8765` and frontend port `5173`, but automatically moves to the next open ports if another copied instance is already running.
 
 ```text
 http://127.0.0.1:5173
@@ -74,7 +74,7 @@ npm run build
 Backend syntax check:
 
 ```powershell
-python -m py_compile backend.py server/main.py server/schemas.py
+python -m py_compile backend.py server/main.py server/api.py server/schemas.py server/services/*.py
 ```
 
 The default ChromaDB path is:
@@ -87,34 +87,18 @@ Change it in the ChromaDB sidebar section to point at a persistent Chroma direct
 
 ## Features
 
-### ChromaDB Connection
-
-- Connects to a persistent local ChromaDB path.
-- Provides a ChromaDB section for selecting and validating the local ChromaDB folder.
-- Falls back to reading collection names from `chroma.sqlite3` when Chroma client inspection has a transient startup failure.
-- Validates the ChromaDB path without stealing focus from manual path entry.
-- Opens directly to the ChromaDB sidebar section on startup when the configured path is invalid or empty.
-- Lists available Chroma collections.
-- Loads ids, documents, embeddings, and metadata.
-
 ### Semantic Visualization
 
-- Reduces embeddings to 2D with UMAP by default.
-- Toggles between 2D and 3D embedding views.
-- Falls back to PCA when UMAP is unavailable or fails.
-- Displays an interactive Plotly scatter plot in a React layout that fills the available browser height.
-- Enables mouse-wheel zoom while the pointer is over the chart.
-- Shows compact point hover popups with only the chunk preview.
-- Persists a `Popup Delay` preference.
-- Allows point popups to be disabled from the View section.
+- Provides 2D and 3D embedding views.
+- Reduces embeddings to 2D with UMAP and PCA.
+- Interactive scatter plot.
 
 ### Clustering And Topic Discovery
 
-- Clusters with HDBSCAN when available, otherwise KMeans.
+- Clusters with HDBSCAN.
 - Colors points by cluster, topic label, source, title, or any detected metadata field.
 - Builds topic labels from TF-IDF keyword extraction.
 - Shows representative chunks nearest each cluster centroid in the backend response.
-- Highlights clusters from the topic panel and highlights points from table selections.
 
 ### Search, Selection, And Inspection
 
@@ -129,15 +113,6 @@ Change it in the ChromaDB sidebar section to point at a persistent Chroma direct
 - Adds optional Phase 2 LLM-assisted audit query generation and interpretation through LM Studio or any OpenAI-compatible chat-completions endpoint.
 - Allows generated audit query batches to be reviewed, edited, saved as JSON, and reloaded for repeatable database comparisons.
 - Detects LLM context-window errors when available, retries oversized audit prompts with a smaller context, and reports LLM output diagnostics when responses are truncated, malformed, or repetitive.
-
-### Workspace And UI
-
-- Uses browser viewport height to resize the chart and right-side information panel.
-- Provides a draggable divider between the chart and table.
-- Persists the user-adjusted table height in local browser storage and saved views.
-- Persists popup settings in saved views and autosave.
-- Shows persistent toast notifications for significant warnings and errors, with full-message copy support.
-- Saves and restores workspaces across sessions.
 
 ## RAG Quality Audits
 
@@ -208,12 +183,24 @@ It will also surface arbitrary metadata fields as `meta.<field>` columns and mak
 
 ## Architecture
 
-- `backend.py` is a compatibility shim that exposes `backend:app` for the launcher.
-- `server/` contains the FastAPI backend package, schemas, routes, scoring, caching, state models, and analysis helpers.
-- `frontend/` contains the Vite React application.
-- `frontend/src/lib/` contains shared React constants, formatting helpers, and Plotly view-state helpers.
-- `screenshots/` contains README images showing the 2D view, 3D view, and audit report.
-- `saved_views/` stores JSON workspace files.
+- `backend.py` is a compatibility shim that still exposes `backend:app` for launchers and copied environments.
+- `server/api.py` owns the FastAPI application and route layer.
+- `server/services/` splits backend responsibilities into path validation, frame loading, caching, retrieval scoring, LLM utilities, and deterministic analysis helpers.
+- `server/state.py` and `server/persistence.py` define the portable saved-workspace contract.
+- `frontend/src/App.jsx` is now a thin shell that composes the UI.
+- `frontend/src/hooks/useRagScopeController.jsx` centralizes client-side orchestration and API workflows.
+- `frontend/src/components/` breaks the interface into sidebar, workspace, audit, info-panel, and overlay modules.
+- `frontend/src/lib/` contains shared constants, formatting helpers, and Plotly view-state helpers.
+- `scripts/` contains operational launchers, and `docs/` contains roadmap and supporting notes.
+- `saved_views/` stores JSON workspace files and `screenshots/` contains the README images.
+
+## Verification
+
+The repo includes a lightweight regression layer under `tests/` for portable workspace serialization and helper behavior:
+
+```powershell
+python -m unittest discover -s tests -t .
+```
 
 ## Optional Dependencies
 
