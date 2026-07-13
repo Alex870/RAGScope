@@ -1,92 +1,67 @@
 # Roadmap
 
-This roadmap defines how `RAGScope` should become the evaluation and comparison surface for both baseline and high-context podcast RAG workflows.
+`RAGScope` is the measurement and investigation workbench for the podcast RAG stack. Its primary job is to make retrieval, contracts, and changes between builds observable and comparable. Embedding maps are useful exploratory tools, not proof of retrieval quality.
 
-## Compatibility Principles
+## Principles
 
-- Keep existing inspection and browsing workflows working with current exports.
-- Treat high-context evaluation as additive, not required.
-- Accept both older baseline artifacts and newer richer manifests.
-- Make cross-profile comparisons a first-class feature instead of assuming one canonical pipeline mode.
+- Keep local exploration fast for existing Chroma exports.
+- Make audits and comparisons reproducible from saved inputs, settings, and artifact IDs.
+- Separate deterministic retrieval measurements from LLM interpretation.
+- Treat UMAP, clusters, and topic labels as diagnostic views, not ground truth.
+- Report missing advanced metadata as reduced evaluability, not an assumed failure.
 
-## Shared Runtime Profile Model
+## Current Foundation
 
-- Add support for reading and displaying:
-  - `runtime_profile`
-  - `backend`
-  - `model_name`
-  - `model_capabilities`
-  - `structured_output_used`
-  - `judge_pass_used`
-- Distinguish:
-  - baseline preprocessing
-  - high-context preprocessing
-  - baseline chat synthesis
-  - high-context chat synthesis
+- React/FastAPI workbench with 2D/3D maps, clustering, metadata filters, search, saved views, retrieval experiments, and quality audits.
+- Optional LLM-assisted audit/query generation with persisted state and backend service modules.
 
-## Core Product Direction
+## Priority 1: Evaluation Dataset And Retrieval Metrics
 
-- Make `RAGScope` the main evaluation harness for the podcast stack.
-- Focus on comparisons that answer:
-  - did longer context improve attribution?
-  - did structured extraction reduce malformed outputs?
-  - did a judge pass reduce contradictions?
-  - where does the baseline path remain sufficient?
+- Add versioned query sets with relevance judgments and expected speaker/date/node-type constraints.
+- Report Recall@k, MRR, nDCG, evidence coverage, duplicate-hit rate, diversity, latency, and result-set size.
+- Support graded relevance and per-query failure diagnosis.
+- Save each run with collection and embedding fingerprints, query-set version, filters, IDs, and scores.
+- Export reusable evaluation sets and Markdown/HTML/JSON reports.
 
-## Evaluation Features
+## Priority 2: Contract And Provenance Inspection
 
-- Add profile-aware dashboards comparing:
-  - fallback rate
-  - malformed JSON rate
-  - duplicate summary rate
-  - contradiction rate
-  - speaker-attribution quality
-  - belief-over-time answer quality
-- Add side-by-side views:
-  - baseline vs high-context processed cache
-  - baseline vs high-context answer synthesis
-  - workhorse model vs judge model
+- Validate exports against the shared importer/chat contract.
+- Surface embedding fingerprint/dimension, collection version, source IDs, hierarchy coverage, and speaker/date completeness.
+- Trace vector records through export metadata to processed-cache nodes when provenance is available.
+- Separate hard violations from incomplete-but-readable data.
 
-## Data And Metadata
+## Priority 3: Comparative Experiments
 
-- Read additive metadata from processed caches, import manifests, and `podcast.json`.
-- Keep older artifacts readable by treating missing advanced fields as unknown rather than invalid.
-- Store evaluation runs with:
-  - source artifact identifiers
-  - runtime profiles
-  - model names
-  - backend type
-  - scoring results
+- Compare exports only with an aligned corpus and judged query-set protocol.
+- Add named experiments for chunking, embedding migration, import mode, hierarchy depth, reranking, and context budget.
+- Show per-query metric deltas and regression thresholds.
+- Store model/runtime metadata as provenance, not the comparison category itself.
 
-## UX
+## Priority 4: Analysis And UX
 
-- Add filters for:
-  - runtime profile
-  - backend
-  - model
-  - export compatibility status
-- Add saved views for common comparisons:
-  - `baseline_vs_5090`
-  - `timeline_quality`
-  - `speaker_attribution_failures`
-  - `fallback_hotspots`
+- Add linked hierarchy, retrieval, cluster, and temporal views with clear scope labels.
+- Explain ranking signals, active filters, neighbors, and source provenance per result.
+- Add background progress, cancellation, and server-side pagination for large collections.
+- Persist seeds and reducer/clustering settings for reproducible visuals.
 
-## Testing
+## Priority 5: LLM-Assisted Audit Discipline
 
-- Add fixtures for:
-  - baseline exports
-  - high-context exports
-  - mixed-profile datasets
-- Add regression tests for:
-  - metadata parsing
-  - comparison scoring
-  - missing-field tolerance
-  - saved comparison views
+- Run LLM interpretation only after deterministic audit data completes.
+- Show model/context/prompt/completion/raw-response/parse diagnostics on every assisted result.
+- Make evidence-limiting controls explicit.
+- Calibrate LLM judgments against human review before using them in scores.
+- Support LM Studio native v1 capability discovery with OpenAI-compatible fallback.
 
-## Implementation Phases
+## Priority 6: Tests And Packaging
 
-1. Add metadata readers for runtime profile, backend, and advanced provenance fields.
-2. Add cross-profile comparison views for processed caches and exports.
-3. Add evaluation metrics for attribution, fallback rate, malformed output rate, and contradiction rate.
-4. Add saved comparison presets and profile-aware filters.
-5. Add regression fixtures proving that both old and new artifacts remain readable.
+- Add synthetic Chroma, contract, and evaluation-set fixtures.
+- Test metrics, comparison, provenance parsing, cache invalidation, missing-field tolerance, and frontend workflows.
+- Add a portable Windows distribution and diagnostic bundle after clean-machine tests pass.
+
+## Sequencing
+
+1. Define shared contract and judged query set.
+2. Make retrieval-run recording and metrics reliable.
+3. Add comparison with regression thresholds.
+4. Add provenance and linked diagnostics.
+5. Scale large-collection execution and package the mature tool.

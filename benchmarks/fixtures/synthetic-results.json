@@ -1,0 +1,7 @@
+{
+  "contract_version": "1.0",
+  "results": [
+    {"query_id": "q1", "ranked_ids": ["leaf-ai", "summary-ai", "leaf-garden"]},
+    {"query_id": "q2", "ranked_ids": ["leaf-garden", "leaf-ai"]}
+  ]
+}

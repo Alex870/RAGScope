@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAGScope Judged Dataset",
+  "type": "object",
+  "required": ["contract_version", "dataset_id", "name", "corpus_fingerprint", "queries"],
+  "properties": {
+    "contract_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+    "dataset_id": {"type": "string"},
+    "name": {"type": "string"},
+    "corpus_fingerprint": {"type": "string"},
+    "queries": {"type": "array"}
+  }
+}

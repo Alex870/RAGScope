@@ -12,3 +12,5 @@ chroma/
 *.log
 POC/
 .test_tmp/
+benchmarks/local/
+benchmarks/runs/

@@ -58,6 +58,7 @@ from .services.search_service import (
 )
 from .state import WorkspaceState
 from .visualization import categorical_color_map
+from .evaluation import JudgedDataset, aggregate_metric, paired_bootstrap, promotion_decision, retrieval_metrics
 
 
 LOGGER = logging.getLogger(__name__)
@@ -76,6 +77,76 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+BENCHMARK_LOCAL_DIR = Path("benchmarks/local")
+
+
+@app.get("/api/evaluation/datasets")
+def evaluation_datasets() -> dict[str, Any]:
+    BENCHMARK_LOCAL_DIR.mkdir(parents=True, exist_ok=True)
+    fixture_dir = Path("benchmarks/fixtures")
+    paths = sorted(list(fixture_dir.glob("*-dataset.json")) + list(BENCHMARK_LOCAL_DIR.glob("*.json")))
+    datasets = []
+    for path in paths:
+        try:
+            dataset = JudgedDataset.load(path)
+            datasets.append({"path": str(path), "dataset_id": dataset.dataset_id, "name": dataset.name, "queries": len(dataset.queries), "corpus_fingerprint": dataset.corpus_fingerprint})
+        except Exception as exc:
+            datasets.append({"path": str(path), "error": str(exc)})
+    return {"datasets": datasets}
+
+
+@app.post("/api/evaluation/datasets")
+def save_evaluation_dataset(payload: dict[str, Any]) -> dict[str, Any]:
+    BENCHMARK_LOCAL_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        queries = []
+        from .evaluation import EvidenceJudgment, JudgedQuery
+        for item in payload.get("queries", []):
+            record = dict(item)
+            judgments = [EvidenceJudgment(**value) for value in record.pop("judgments", [])]
+            queries.append(JudgedQuery(judgments=judgments, **record))
+        dataset = JudgedDataset(
+            name=str(payload.get("name") or "Untitled Benchmark"),
+            corpus_fingerprint=str(payload.get("corpus_fingerprint") or "unknown"),
+            queries=queries,
+            dataset_id=str(payload.get("dataset_id") or uuid.uuid4()),
+        )
+        path = BENCHMARK_LOCAL_DIR / f"{dataset.dataset_id}.json"
+        dataset.save(path)
+        return {"saved": True, "path": str(path), "dataset": dataset.as_dict()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid judged dataset: {exc}") from exc
+
+
+@app.post("/api/evaluation/run")
+def run_evaluation(payload: dict[str, Any]) -> dict[str, Any]:
+    dataset_path = Path(str(payload.get("dataset_path") or ""))
+    try:
+        dataset = JudgedDataset.load(dataset_path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not load benchmark: {exc}") from exc
+    result_by_query = {str(item.get("query_id")): item for item in payload.get("results", [])}
+    rows = []
+    for query in dataset.queries:
+        result = result_by_query.get(query.query_id, {})
+        metrics = retrieval_metrics(query, [str(item) for item in result.get("ranked_ids", [])])
+        rows.append({"query_id": query.query_id, "query": query.query, **metrics})
+    aggregate = {name: aggregate_metric(rows, name) for name in ("ndcg@10", "recall@20", "precision@10", "mrr", "hit_rate@10", "primary_coverage@10", "false_primary_support@10")}
+    return {"contract_version": "1.0", "dataset_id": dataset.dataset_id, "queries": rows, "aggregate": aggregate}
+
+
+@app.post("/api/evaluation/compare")
+def compare_evaluations(payload: dict[str, Any]) -> dict[str, Any]:
+    baseline = payload.get("baseline") or {}
+    candidate = payload.get("candidate") or {}
+    baseline_rows = baseline.get("queries") or []
+    candidate_rows = candidate.get("queries") or []
+    candidate_by_id = {str(item.get("query_id")): item for item in candidate_rows}
+    pairs = [(row, candidate_by_id[str(row.get("query_id"))]) for row in baseline_rows if str(row.get("query_id")) in candidate_by_id]
+    bootstrap = paired_bootstrap([float(left.get("ndcg@10", 0)) for left, _ in pairs], [float(right.get("ndcg@10", 0)) for _, right in pairs]) if pairs else None
+    return {"bootstrap": bootstrap, "promotion": promotion_decision(baseline.get("aggregate") or {}, candidate.get("aggregate") or {}), "paired_queries": len(pairs)}
 
 
 @app.post("/api/collections")

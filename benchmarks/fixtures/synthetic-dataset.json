@@ -1,0 +1,50 @@
+{
+  "name": "Synthetic Podcast Retrieval",
+  "corpus_fingerprint": "synthetic-v1",
+  "dataset_id": "synthetic-podcast-v1",
+  "contract_version": "1.0",
+  "created_at": "2026-07-12T00:00:00+00:00",
+  "queries": [
+    {
+      "query": "What does the host say about local AI?",
+      "query_class": "speaker_fact",
+      "answerable": true,
+      "query_id": "q1",
+      "expected_speakers": ["Host"],
+      "date_start": "",
+      "date_end": "",
+      "acceptable_evidence_sets": [["leaf-ai"]],
+      "reference_claims": ["The host favors local AI."],
+      "hard_negative_ids": ["leaf-garden"],
+      "provenance": "synthetic",
+      "human_reviewed": true,
+      "second_reviewer": "",
+      "adjudication_note": "",
+      "judgments": [
+        {"document_id": "leaf-ai", "source_span_id": "ep1:0-30", "grade": 3, "reviewer": "fixture", "note": "Primary statement"},
+        {"document_id": "summary-ai", "source_span_id": "ep1", "grade": 2, "reviewer": "fixture", "note": "Derived summary"},
+        {"document_id": "leaf-garden", "source_span_id": "ep2:0-30", "grade": 0, "reviewer": "fixture", "note": "Hard negative"}
+      ]
+    },
+    {
+      "query": "What is the host's position on orbital farming?",
+      "query_class": "unanswerable",
+      "answerable": false,
+      "query_id": "q2",
+      "expected_speakers": ["Host"],
+      "date_start": "",
+      "date_end": "",
+      "acceptable_evidence_sets": [],
+      "reference_claims": [],
+      "hard_negative_ids": ["leaf-garden"],
+      "provenance": "synthetic",
+      "human_reviewed": true,
+      "second_reviewer": "",
+      "adjudication_note": "",
+      "judgments": [
+        {"document_id": "leaf-ai", "source_span_id": "ep1:0-30", "grade": 0, "reviewer": "fixture", "note": "Unsupported"},
+        {"document_id": "leaf-garden", "source_span_id": "ep2:0-30", "grade": 1, "reviewer": "fixture", "note": "Only loosely related"}
+      ]
+    }
+  ]
+}

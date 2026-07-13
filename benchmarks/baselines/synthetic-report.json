@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "dataset_id": "synthetic-podcast-v1",
+  "aggregate": {
+    "ndcg@10": 1.0,
+    "recall@20": 0.5,
+    "precision@10": 0.3333333333333333,
+    "mrr": 0.5,
+    "hit_rate@10": 0.5,
+    "primary_coverage@10": 0.5,
+    "false_primary_support@10": 0.0,
+    "constraint_accuracy": 1.0,
+    "median_latency_ms": 1.0,
+    "false_primary_support": 0.0
+  }
+}

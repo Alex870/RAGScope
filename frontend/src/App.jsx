@@ -3,6 +3,7 @@ import React from "react";
 import { AppOverlays } from "./components/AppOverlays";
 import { AuditWorkspace } from "./components/AuditWorkspace";
 import { ExploreWorkspace } from "./components/ExploreWorkspace";
+import { EvaluationWorkspace } from "./components/EvaluationWorkspace";
 import { InfoPanel } from "./components/InfoPanel";
 import { Sidebar } from "./components/Sidebar";
 import { useRagScopeController } from "./hooks/useRagScopeController";
@@ -69,7 +70,7 @@ function App() {
             <span className={controller.pipelineSummary.orphans ? "warn" : ""}><strong>{controller.pipelineSummary.orphans.toLocaleString()}</strong> orphans</span>
           </div>
           <div className="workspace-switch">
-            {["Explore", "Audit Report"].map((mode) => (
+            {["Explore", "Audit Report", "Evaluation"].map((mode) => (
               <button
                 type="button"
                 key={mode}
@@ -83,8 +84,10 @@ function App() {
           </div>
           {controller.workspaceMode === "Explore" ? (
             <ExploreWorkspace controller={controller} />
-          ) : (
+          ) : controller.workspaceMode === "Audit Report" ? (
             <AuditWorkspace controller={controller} />
+          ) : (
+            <EvaluationWorkspace controller={controller} />
           )}
         </div>
 

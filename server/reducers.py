@@ -31,8 +31,8 @@ def reduce_embeddings(embeddings: np.ndarray, settings: ReductionSettings, dimen
                 min_dist=settings.min_dist,
                 metric=settings.metric,
                 init="random",
-                random_state=None,
-                n_jobs=-1,
+                random_state=settings.random_state,
+                n_jobs=1 if settings.random_state is not None else -1,
             )
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="n_jobs value.*")

@@ -17,6 +17,7 @@ class ReductionSettings:
     min_dist: float = 0.1
     metric: str = "cosine"
     pca_random_state: int = 42
+    random_state: int | None = 42
     sample_size: int = 5000
     use_sampling: bool = False
 
