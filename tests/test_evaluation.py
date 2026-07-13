@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from server.evaluation import EvidenceJudgment, ExperimentManifest, JudgedDataset, JudgedQuery, paired_bootstrap, promotion_decision, retrieval_metrics
+from server.evaluation import EvidenceJudgment, ExperimentManifest, ExperimentStore, JudgedDataset, JudgedQuery, paired_bootstrap, promotion_decision, retrieval_metrics
 from server.explanations import create_counterfactual
 from server.state import ClusteringSettings, ReductionSettings
 
@@ -26,6 +26,27 @@ class EvaluationTests(unittest.TestCase):
     def test_manifest_id_is_immutable_and_notes_are_external(self):
         manifest = ExperimentManifest("corpus", "collection", "index", {"top_k": 10}, {"embedding": "model"}, {"retrieval": 42}, {"retrieval_ms": 1.0})
         self.assertEqual(manifest.run_id, manifest.run_id)
+        with tempfile.TemporaryDirectory(dir="C:\\temp\\codex") as tmp:
+            store = ExperimentStore(Path(tmp))
+            run_dir = store.save(manifest, {"aggregate": {}}, "first")
+            immutable = (run_dir / "run.json").read_text(encoding="utf-8")
+            store.update_notes(manifest.run_id, "second")
+            self.assertEqual((run_dir / "run.json").read_text(encoding="utf-8"), immutable)
+
+    def test_committed_json_constructs_temporary_chroma_collection(self):
+        try:
+            import chromadb
+        except ImportError as exc:
+            self.skipTest(f"chromadb is not installed: {exc}")
+        import json
+        fixture = json.loads(Path("benchmarks/fixtures/synthetic-corpus.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(dir="C:\\temp\\codex") as tmp:
+            client = chromadb.PersistentClient(path=tmp)
+            collection = client.create_collection("synthetic")
+            collection.add(ids=[item["id"] for item in fixture["documents"]], documents=[item["text"] for item in fixture["documents"]], embeddings=[item["embedding"] for item in fixture["documents"]], metadatas=[item["metadata"] for item in fixture["documents"]])
+            self.assertEqual(collection.count(), len(fixture["documents"]))
+            client._system.stop()
+            chromadb.api.client.SharedSystemClient.clear_system_cache()
 
     def test_bootstrap_is_reproducible_and_descriptive_for_small_sets(self):
         first = paired_bootstrap([0.1, 0.2], [0.2, 0.4], samples=100, seed=7)

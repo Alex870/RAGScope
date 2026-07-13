@@ -201,7 +201,9 @@ def looks_degenerate(text: str) -> bool:
 
 
 def parse_context_window_error(text: str) -> int | None:
-    match = re.search(r"n_ctx:\s*(\d+)", text)
+    match = re.search(r"n_ctx:\s*(\d+)", text, re.IGNORECASE) or re.search(
+        r"maximum\s+context\s+length\s+is\s+(\d+)\s+tokens", text, re.IGNORECASE
+    )
     if not match:
         return None
     try:

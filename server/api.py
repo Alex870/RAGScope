@@ -58,7 +58,10 @@ from .services.search_service import (
 )
 from .state import WorkspaceState
 from .visualization import categorical_color_map
-from .evaluation import JudgedDataset, aggregate_metric, paired_bootstrap, promotion_decision, retrieval_metrics
+from .evaluation import JudgedDataset, ExperimentManifest, ExperimentStore, aggregate_metric, paired_bootstrap, promotion_decision, retrieval_metrics
+from .diagnostics import cluster_stability, embedding_quality, projection_diagnostics
+from .explanations import create_counterfactual
+from .state import ClusteringSettings, ReductionSettings
 
 
 LOGGER = logging.getLogger(__name__)
@@ -80,6 +83,7 @@ def health() -> dict[str, str]:
 
 
 BENCHMARK_LOCAL_DIR = Path("benchmarks/local")
+EXPERIMENT_RUN_DIR = Path("benchmarks/runs")
 
 
 @app.get("/api/evaluation/datasets")
@@ -120,6 +124,65 @@ def save_evaluation_dataset(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Invalid judged dataset: {exc}") from exc
 
 
+@app.get("/api/evaluation/datasets/{dataset_id}")
+def get_evaluation_dataset(dataset_id: str) -> dict[str, Any]:
+    for path in list(Path("benchmarks/fixtures").glob("*-dataset.json")) + list(BENCHMARK_LOCAL_DIR.glob("*.json")):
+        dataset = JudgedDataset.load(path)
+        if dataset.dataset_id == dataset_id:
+            return {"path": str(path), "dataset": dataset.as_dict()}
+    raise HTTPException(status_code=404, detail="Judged dataset not found")
+
+
+@app.post("/api/evaluation/validate-identities")
+def validate_evaluation_identities(payload: dict[str, Any]) -> dict[str, Any]:
+    available_documents = set(map(str, payload.get("available_document_ids") or []))
+    available_spans = set(map(str, payload.get("available_source_span_ids") or []))
+    stale_documents, stale_spans = [], []
+    for query in payload.get("queries") or []:
+        for judgment in query.get("judgments") or []:
+            if available_documents and str(judgment.get("document_id")) not in available_documents:
+                stale_documents.append(str(judgment.get("document_id")))
+            if available_spans and str(judgment.get("source_span_id")) not in available_spans:
+                stale_spans.append(str(judgment.get("source_span_id")))
+    return {"stale_document_ids": sorted(set(stale_documents)), "stale_source_span_ids": sorted(set(stale_spans))}
+
+
+@app.post("/api/evaluation/diagnostics")
+def evaluation_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
+    embeddings = np.asarray(payload.get("embeddings") or [], dtype=float)
+    if embeddings.ndim != 2 or not len(embeddings):
+        raise HTTPException(status_code=400, detail="A non-empty 2D embeddings array is required")
+    profile = str(payload.get("profile") or "interactive")
+    result = {"profile": profile, "embedding_quality": embedding_quality(embeddings, payload.get("metadata") or [])}
+    if payload.get("project", True):
+        result["projection"] = projection_diagnostics(embeddings, ReductionSettings(), sample_size=5000 if profile == "thorough" else 1000)
+    if payload.get("cluster", True):
+        result["cluster"] = cluster_stability(embeddings, ClusteringSettings(), runs=5)
+    return result
+
+
+@app.post("/api/evaluation/runs")
+def save_evaluation_run(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        manifest = ExperimentManifest(**payload["manifest"])
+        path = ExperimentStore(EXPERIMENT_RUN_DIR).save(manifest, payload.get("report") or {}, str(payload.get("notes") or ""))
+        return {"run_id": manifest.run_id, "path": str(path)}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/evaluation/runs/{run_id}/notes")
+def update_evaluation_notes(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    path = ExperimentStore(EXPERIMENT_RUN_DIR).update_notes(run_id, str(payload.get("notes") or ""))
+    return {"saved": True, "path": str(path)}
+
+
+@app.post("/api/evaluation/counterfactual")
+def evaluation_counterfactual(payload: dict[str, Any]) -> dict[str, Any]:
+    run = create_counterfactual(str(payload.get("parent_run_id") or ""), dict(payload.get("changes") or {}))
+    return {"run_id": run.run_id, "parent_run_id": run.parent_run_id, "changes": run.changes, "request": payload.get("rerun_request") or {}}
+
+
 @app.post("/api/evaluation/run")
 def run_evaluation(payload: dict[str, Any]) -> dict[str, Any]:
     dataset_path = Path(str(payload.get("dataset_path") or ""))
@@ -146,7 +209,10 @@ def compare_evaluations(payload: dict[str, Any]) -> dict[str, Any]:
     candidate_by_id = {str(item.get("query_id")): item for item in candidate_rows}
     pairs = [(row, candidate_by_id[str(row.get("query_id"))]) for row in baseline_rows if str(row.get("query_id")) in candidate_by_id]
     bootstrap = paired_bootstrap([float(left.get("ndcg@10", 0)) for left, _ in pairs], [float(right.get("ndcg@10", 0)) for _, right in pairs]) if pairs else None
-    return {"bootstrap": bootstrap, "promotion": promotion_decision(baseline.get("aggregate") or {}, candidate.get("aggregate") or {}), "paired_queries": len(pairs)}
+    deltas = [{"query_id": left.get("query_id"), "baseline": left.get("ndcg@10", 0), "candidate": right.get("ndcg@10", 0), "delta": right.get("ndcg@10", 0) - left.get("ndcg@10", 0)} for left, right in pairs]
+    promotion = promotion_decision(baseline.get("aggregate") or {}, candidate.get("aggregate") or {})
+    markdown = "# Evaluation Comparison\n\n" + f"Paired queries: {len(pairs)}\n\nPromotion: {'PASS' if promotion['promote'] else 'FAIL'}\n\n" + "\n".join(f"- {item}" for item in promotion["failures"] + promotion["warnings"])
+    return {"bootstrap": bootstrap, "promotion": promotion, "paired_queries": len(pairs), "deltas": deltas, "markdown": markdown}
 
 
 @app.post("/api/collections")

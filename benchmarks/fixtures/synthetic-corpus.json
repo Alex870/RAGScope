@@ -1,0 +1,8 @@
+{
+  "contract_version": "1.0",
+  "documents": [
+    {"id": "leaf-ai", "text": "The guest describes careful evaluation of retrieval systems.", "embedding": [1.0, 0.0, 0.0, 0.0], "metadata": {"speaker": "Guest", "episode_date": "2026-01-01", "node_type": "leaf_chunk", "source_span_id": "episode-ai:0-64"}},
+    {"id": "summary-ai", "text": "The episode summarizes practical AI evaluation.", "embedding": [0.9, 0.1, 0.0, 0.0], "metadata": {"speaker": "Guest", "episode_date": "2026-01-01", "node_type": "cluster_summary", "source_span_id": "episode-ai:summary"}},
+    {"id": "leaf-garden", "text": "The host discusses soil preparation for a garden.", "embedding": [0.0, 1.0, 0.0, 0.0], "metadata": {"speaker": "Host", "episode_date": "2026-02-01", "node_type": "leaf_chunk", "source_span_id": "episode-garden:0-64"}}
+  ]
+}

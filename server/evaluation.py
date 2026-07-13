@@ -8,6 +8,7 @@ import random
 import statistics
 import sys
 import uuid
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -96,9 +97,39 @@ class JudgedDataset:
         require_compatible(payload.get("contract_version", "1.0"), DATASET_VERSION, path)
         queries = []
         for item in payload.get("queries", []):
-            judgments = [EvidenceJudgment(**value) for value in item.pop("judgments", [])]
-            queries.append(JudgedQuery(judgments=judgments, **item))
+            record = dict(item)
+            judgments = [EvidenceJudgment(**value) for value in record.pop("judgments", [])]
+            queries.append(JudgedQuery(judgments=judgments, **record))
         return cls(queries=queries, **{key: value for key, value in payload.items() if key != "queries"})
+
+
+class ExperimentStore:
+    """Persist immutable run data independently from mutable operator notes."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def save(self, manifest: ExperimentManifest, report: dict[str, Any], notes: str = "") -> Path:
+        run_dir = self.root / manifest.run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        immutable = run_dir / "run.json"
+        payload = {"manifest": asdict(manifest), "run_id": manifest.run_id, "report": report}
+        encoded = json.dumps(payload, indent=2, ensure_ascii=True) + "\n"
+        if immutable.exists() and immutable.read_text(encoding="utf-8") != encoded:
+            raise FileExistsError(f"Immutable run {manifest.run_id} already exists with different data")
+        immutable.write_text(encoded, encoding="utf-8")
+        try:
+            os.chmod(immutable, 0o444)
+        except OSError:
+            pass
+        self.update_notes(manifest.run_id, notes)
+        return run_dir
+
+    def update_notes(self, run_id: str, notes: str) -> Path:
+        path = self.root / run_id / "notes.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"notes": notes}, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+        return path
 
 
 @dataclass(frozen=True)
@@ -204,4 +235,3 @@ def promotion_decision(baseline: dict[str, float], candidate: dict[str, float]) 
     if candidate.get("false_primary_support", 0) > baseline.get("false_primary_support", 0):
         failures.append("No-answer false support regressed")
     return {"promote": not failures, "failures": failures, "warnings": []}
-

@@ -9,6 +9,10 @@ import chromadb
 
 def resolve_chroma_path(path: Path) -> tuple[Path, dict[str, Any]]:
     """Accept either a Chroma root or a parent folder containing a `chroma/` child."""
+    if path.is_file() and path.name.casefold() == "chroma.sqlite3":
+        parent = path.parent
+        validation = validate_chroma_path(parent)
+        return parent, {**validation, "requested_path": str(path), "message": "SQLite file selected; using its containing Chroma folder."}
     validation = validate_chroma_path(path)
     if validation["valid"]:
         return path, validation
