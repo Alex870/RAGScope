@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 import uuid
 from copy import deepcopy
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import DEFAULT_SEMANTIC_EMBEDDING_MODEL
+from .chroma_loader import inspect_provenance, trace_provenance
 from .persistence import SAVED_VIEWS_DIR, ensure_saved_views_dir, list_views, load_view, rename_view, save_view
 from .schemas import (
     AnalyzeSelectionRequest,
@@ -58,7 +60,20 @@ from .services.search_service import (
 )
 from .state import WorkspaceState
 from .visualization import categorical_color_map
-from .evaluation import JudgedDataset, ExperimentManifest, ExperimentStore, aggregate_metric, paired_bootstrap, promotion_decision, retrieval_metrics
+from .evaluation import (
+    JudgedDataset,
+    ExperimentManifest,
+    ExperimentStore,
+    IncompatibleComparisonError,
+    aggregate_metric,
+    compare_reports,
+    create_queries_from_documents,
+    evaluate_results,
+    paired_bootstrap,
+    promotion_decision,
+    render_comparison_markdown,
+    retrieval_metrics,
+)
 from .diagnostics import cluster_stability, embedding_quality, projection_diagnostics
 from .explanations import create_counterfactual
 from .state import ClusteringSettings, ReductionSettings
@@ -95,7 +110,7 @@ def evaluation_datasets() -> dict[str, Any]:
     for path in paths:
         try:
             dataset = JudgedDataset.load(path)
-            datasets.append({"path": str(path), "dataset_id": dataset.dataset_id, "name": dataset.name, "queries": len(dataset.queries), "corpus_fingerprint": dataset.corpus_fingerprint})
+            datasets.append({"path": str(path), "dataset_id": dataset.dataset_id, "name": dataset.name, "queries": len(dataset.queries), "corpus_fingerprint": dataset.corpus_fingerprint, "judged_dataset_fingerprint": dataset.fingerprint, "format": dataset.pack_version})
         except Exception as exc:
             datasets.append({"path": str(path), "error": str(exc)})
     return {"datasets": datasets}
@@ -105,21 +120,23 @@ def evaluation_datasets() -> dict[str, Any]:
 def save_evaluation_dataset(payload: dict[str, Any]) -> dict[str, Any]:
     BENCHMARK_LOCAL_DIR.mkdir(parents=True, exist_ok=True)
     try:
+        source = payload.get("dataset") if payload.get("format") == "podcast-evaluation-pack-v1" else payload
+        source = source or {}
         queries = []
         from .evaluation import EvidenceJudgment, JudgedQuery
-        for item in payload.get("queries", []):
+        for item in source.get("queries", []):
             record = dict(item)
             judgments = [EvidenceJudgment(**value) for value in record.pop("judgments", [])]
             queries.append(JudgedQuery(judgments=judgments, **record))
         dataset = JudgedDataset(
-            name=str(payload.get("name") or "Untitled Benchmark"),
-            corpus_fingerprint=str(payload.get("corpus_fingerprint") or "unknown"),
+            name=str(source.get("name") or "Untitled Benchmark"),
+            corpus_fingerprint=str(source.get("corpus_fingerprint") or "unknown"),
             queries=queries,
-            dataset_id=str(payload.get("dataset_id") or uuid.uuid4()),
+            dataset_id=str(source.get("dataset_id") or uuid.uuid4()),
         )
         path = BENCHMARK_LOCAL_DIR / f"{dataset.dataset_id}.json"
         dataset.save(path)
-        return {"saved": True, "path": str(path), "dataset": dataset.as_dict()}
+        return {"saved": True, "format": "podcast-evaluation-pack-v1", "path": str(path), "dataset": dataset.as_dict(), "fingerprint": dataset.fingerprint}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid judged dataset: {exc}") from exc
 
@@ -153,11 +170,20 @@ def evaluation_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
     if embeddings.ndim != 2 or not len(embeddings):
         raise HTTPException(status_code=400, detail="A non-empty 2D embeddings array is required")
     profile = str(payload.get("profile") or "interactive")
-    result = {"profile": profile, "embedding_quality": embedding_quality(embeddings, payload.get("metadata") or [])}
+    result = {"profile": profile, "embedding_quality": embedding_quality(embeddings, payload.get("metadata") or []), "visualization_audit": {"deterministic_metrics": True, "llm_assisted_interpretation": False, "projection_semantics": "Projected proximity is not original-space similarity."}}
     if payload.get("project", True):
         result["projection"] = projection_diagnostics(embeddings, ReductionSettings(), sample_size=5000 if profile == "thorough" else 1000)
     if payload.get("cluster", True):
         result["cluster"] = cluster_stability(embeddings, ClusteringSettings(), runs=5)
+    return result
+
+
+@app.post("/api/evaluation/provenance")
+def evaluation_provenance(payload: dict[str, Any]) -> dict[str, Any]:
+    rows = payload.get("rows") or []
+    result = inspect_provenance(str(payload.get("chroma_path") or "./chroma"), rows)
+    if payload.get("document_id"):
+        result["trace"] = trace_provenance(str(payload["document_id"]), rows)
     return result
 
 
@@ -190,29 +216,28 @@ def run_evaluation(payload: dict[str, Any]) -> dict[str, Any]:
         dataset = JudgedDataset.load(dataset_path)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not load benchmark: {exc}") from exc
-    result_by_query = {str(item.get("query_id")): item for item in payload.get("results", [])}
-    rows = []
-    for query in dataset.queries:
-        result = result_by_query.get(query.query_id, {})
-        metrics = retrieval_metrics(query, [str(item) for item in result.get("ranked_ids", [])])
-        rows.append({"query_id": query.query_id, "query": query.query, **metrics})
-    aggregate = {name: aggregate_metric(rows, name) for name in ("ndcg@10", "recall@20", "precision@10", "mrr", "hit_rate@10", "primary_coverage@10", "false_primary_support@10")}
-    return {"contract_version": "1.0", "dataset_id": dataset.dataset_id, "queries": rows, "aggregate": aggregate}
+    return evaluate_results(dataset, payload)
 
 
 @app.post("/api/evaluation/compare")
 def compare_evaluations(payload: dict[str, Any]) -> dict[str, Any]:
     baseline = payload.get("baseline") or {}
     candidate = payload.get("candidate") or {}
-    baseline_rows = baseline.get("queries") or []
-    candidate_rows = candidate.get("queries") or []
-    candidate_by_id = {str(item.get("query_id")): item for item in candidate_rows}
-    pairs = [(row, candidate_by_id[str(row.get("query_id"))]) for row in baseline_rows if str(row.get("query_id")) in candidate_by_id]
-    bootstrap = paired_bootstrap([float(left.get("ndcg@10", 0)) for left, _ in pairs], [float(right.get("ndcg@10", 0)) for _, right in pairs]) if pairs else None
-    deltas = [{"query_id": left.get("query_id"), "baseline": left.get("ndcg@10", 0), "candidate": right.get("ndcg@10", 0), "delta": right.get("ndcg@10", 0) - left.get("ndcg@10", 0)} for left, right in pairs]
-    promotion = promotion_decision(baseline.get("aggregate") or {}, candidate.get("aggregate") or {})
-    markdown = "# Evaluation Comparison\n\n" + f"Paired queries: {len(pairs)}\n\nPromotion: {'PASS' if promotion['promote'] else 'FAIL'}\n\n" + "\n".join(f"- {item}" for item in promotion["failures"] + promotion["warnings"])
-    return {"bootstrap": bootstrap, "promotion": promotion, "paired_queries": len(pairs), "deltas": deltas, "markdown": markdown}
+    try:
+        comparison = compare_reports(baseline, candidate, samples=int(payload.get("bootstrap_samples") or 10_000), seed=int(payload.get("seed") or 42))
+    except IncompatibleComparisonError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    comparison["markdown"] = render_comparison_markdown(comparison)
+    return comparison
+
+
+@app.post("/api/evaluation/queries-from-documents")
+def evaluation_queries_from_documents(payload: dict[str, Any]) -> dict[str, Any]:
+    provenance = str(payload.get("provenance") or "human")
+    if provenance not in {"human", "generated"}:
+        raise HTTPException(status_code=400, detail="provenance must be human or generated")
+    queries = create_queries_from_documents(payload.get("documents") or [], payload.get("query_texts"), provenance=provenance)
+    return {"queries": [asdict(query) for query in queries], "count": len(queries), "provenance": provenance}
 
 
 @app.post("/api/collections")

@@ -1,5 +1,6 @@
 import unittest
 import uuid
+import tempfile
 from pathlib import Path
 import shutil
 
@@ -9,12 +10,10 @@ from server.state import WorkspaceState
 
 class PersistenceTests(unittest.TestCase):
     def test_save_and_load_view_round_trip(self) -> None:
-        root = Path(".test_tmp") / f"persistence-{uuid.uuid4().hex}"
-        root.mkdir(parents=True, exist_ok=True)
-        try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / f"persistence-{uuid.uuid4().hex}"
+            root.mkdir(parents=True, exist_ok=True)
             self._with_saved_view_dir(root.resolve(), self._round_trip_case)
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
 
     def test_safe_filename_normalizes_display_name(self) -> None:
         self.assertEqual(persistence.safe_filename("  Alpha / Beta  "), "Alpha_Beta")

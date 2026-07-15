@@ -1278,6 +1278,13 @@ export function useRagScopeController() {
         duplicates,
       },
       retrieval: { queryCount: retrievalTests.length, tests: retrievalTests },
+      visualization: {
+        reducer: dataset?.reduction || { method: "unknown" },
+        clustering: dataset?.clustering || { method: "unknown" },
+        seeds: { reducer: dataset?.reduction?.random_state ?? 42, clustering: dataset?.clustering?.random_state ?? 42 },
+        deterministic: true,
+        interpretation: "Projected proximity is not original-space similarity; deterministic audit metrics are separate from LLM interpretation.",
+      },
       findings: [
         ...(fieldStats.filter((item) => item.missing).map((item) => `${item.field} missing on ${item.missing.toLocaleString()} chunks.`)),
         ...(orphanRows.length ? [`${orphanRows.length.toLocaleString()} hierarchy nodes reference missing parents in the loaded scope.`] : []),

@@ -17,7 +17,7 @@ class EvaluationTests(unittest.TestCase):
 
     def test_dataset_roundtrip_and_stale_identity(self):
         dataset = JudgedDataset("set", "corpus", [JudgedQuery("query", "fact", True, [EvidenceJudgment("old-id", "episode:0-10", 3)])])
-        with tempfile.TemporaryDirectory(dir="C:\\temp\\codex") as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "dataset.json"
             dataset.save(path)
             loaded = JudgedDataset.load(path)
@@ -26,7 +26,7 @@ class EvaluationTests(unittest.TestCase):
     def test_manifest_id_is_immutable_and_notes_are_external(self):
         manifest = ExperimentManifest("corpus", "collection", "index", {"top_k": 10}, {"embedding": "model"}, {"retrieval": 42}, {"retrieval_ms": 1.0})
         self.assertEqual(manifest.run_id, manifest.run_id)
-        with tempfile.TemporaryDirectory(dir="C:\\temp\\codex") as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             store = ExperimentStore(Path(tmp))
             run_dir = store.save(manifest, {"aggregate": {}}, "first")
             immutable = (run_dir / "run.json").read_text(encoding="utf-8")
@@ -40,7 +40,7 @@ class EvaluationTests(unittest.TestCase):
             self.skipTest(f"chromadb is not installed: {exc}")
         import json
         fixture = json.loads(Path("benchmarks/fixtures/synthetic-corpus.json").read_text(encoding="utf-8"))
-        with tempfile.TemporaryDirectory(dir="C:\\temp\\codex") as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             client = chromadb.PersistentClient(path=tmp)
             collection = client.create_collection("synthetic")
             collection.add(ids=[item["id"] for item in fixture["documents"]], documents=[item["text"] for item in fixture["documents"]], embeddings=[item["embedding"] for item in fixture["documents"]], metadatas=[item["metadata"] for item in fixture["documents"]])
@@ -72,8 +72,12 @@ class EvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(neighbor_preservation(values, values, 5), 1.0)
         projection = projection_diagnostics(values, ReductionSettings(method="PCA"), seeds=[1, 2], k=5)
         self.assertIn("trustworthiness", projection)
+        self.assertEqual(projection["seeds"], [1, 2])
+        self.assertIn("reducer_settings", projection)
+        self.assertIn("Projected proximity", projection["interpretation"])
         clusters = cluster_stability(values, ClusteringSettings(method="KMeans", kmeans_clusters=2), runs=3)
         self.assertGreaterEqual(clusters["agreement"], 0.0)
+        self.assertIn("clustering_settings", clusters)
         quality = embedding_quality(values, [{"speaker": "Host"}] * len(values))
         self.assertIn("anisotropy", quality)
 

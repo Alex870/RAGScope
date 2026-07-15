@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import asdict
 from collections import Counter
 from typing import Any
 
@@ -43,7 +44,7 @@ def projection_diagnostics(embeddings: np.ndarray, settings: ReductionSettings, 
     first = runs[0]["coords"]
     preservation = neighbor_preservation(sample, first, k)
     stability = statistics_mean([neighbor_preservation(first, run["coords"], k) for run in runs[1:]]) if len(runs) > 1 else 1.0
-    return {"k": k, "sample_size": len(sample), "seeds": seeds, "trustworthiness": float(trustworthiness(sample, first, n_neighbors=min(k, max(1, len(sample) // 2 - 1)))) if len(sample) > 5 else 1.0, "neighbor_preservation": preservation, "seed_stability": stability, "elapsed_seconds": time.perf_counter() - started}
+    return {"k": k, "sample_size": len(sample), "seeds": seeds, "reducer_settings": asdict(settings), "trustworthiness": float(trustworthiness(sample, first, n_neighbors=min(k, max(1, len(sample) // 2 - 1)))) if len(sample) > 5 else 1.0, "neighbor_preservation": preservation, "seed_stability": stability, "interpretation": "Projected proximity is not original-space similarity.", "deterministic": True, "elapsed_seconds": time.perf_counter() - started}
 
 
 def statistics_mean(values: list[float]) -> float:
@@ -73,7 +74,7 @@ def cluster_stability(embeddings: np.ndarray, settings: ClusteringSettings, runs
     silhouette = None
     if len(set(full_labels)) > 1 and len(set(full_labels)) < len(embeddings):
         silhouette = float(silhouette_score(embeddings, full_labels))
-    return {"runs": runs, "sample_fraction": sample_fraction, "agreement": statistics_mean(agreements), "silhouette": silhouette, "algorithm": algorithm}
+    return {"runs": runs, "sample_fraction": sample_fraction, "seed_base": 42, "clustering_settings": asdict(settings), "agreement": statistics_mean(agreements), "silhouette": silhouette, "algorithm": algorithm, "deterministic": True}
 
 
 def embedding_quality(embeddings: np.ndarray, metadata: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -91,4 +92,3 @@ def embedding_quality(embeddings: np.ndarray, metadata: list[dict[str, Any]] | N
         values = [item.get(field) for item in (metadata or [])]
         coverage[field] = sum(value not in (None, "") for value in values) / max(1, len(values))
     return {"norm_min": float(norms.min()), "norm_mean": float(norms.mean()), "norm_max": float(norms.max()), "anisotropy": float(np.linalg.norm(centroid)), "max_hub_count": max(hub_counts.values(), default=0), "metadata_coverage": coverage}
-

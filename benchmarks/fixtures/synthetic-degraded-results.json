@@ -1,0 +1,14 @@
+{
+  "contract_version": "1.0",
+  "source": "deliberately-degraded-fixture",
+  "results": [
+    {"query_id": "q1", "latency_ms": 2.0, "ranked_results": [
+      {"id": "leaf-garden", "metadata": {"speaker": "Host", "episode_date": "2026-02-01", "node_type": "leaf_chunk", "source": "episode-garden"}},
+      {"id": "summary-ai", "metadata": {"speaker": "Host", "episode_date": "2026-01-01", "node_type": "cluster_summary", "source": "episode-ai"}}
+    ]},
+    {"query_id": "q2", "latency_ms": 2.0, "ranked_results": [
+      {"id": "leaf-ai", "metadata": {"speaker": "Host", "episode_date": "2026-01-01", "node_type": "leaf_chunk", "source": "episode-ai"}},
+      {"id": "summary-ai", "metadata": {"speaker": "Host", "episode_date": "2026-01-01", "node_type": "cluster_summary", "source": "episode-ai"}}
+    ]}
+  ]
+}

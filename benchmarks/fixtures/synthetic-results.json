@@ -1,7 +1,14 @@
 {
   "contract_version": "1.0",
   "results": [
-    {"query_id": "q1", "ranked_ids": ["leaf-ai", "summary-ai", "leaf-garden"]},
-    {"query_id": "q2", "ranked_ids": ["leaf-garden", "leaf-ai"]}
+    {"query_id": "q1", "latency_ms": 1.0, "ranked_results": [
+      {"id": "leaf-ai", "metadata": {"speaker": "Host", "episode_date": "2026-01-01", "node_type": "leaf_chunk", "source": "episode-ai"}},
+      {"id": "summary-ai", "metadata": {"speaker": "Host", "episode_date": "2026-01-01", "node_type": "cluster_summary", "source": "episode-ai"}},
+      {"id": "leaf-garden", "metadata": {"speaker": "Host", "episode_date": "2026-02-01", "node_type": "leaf_chunk", "source": "episode-garden"}}
+    ]},
+    {"query_id": "q2", "latency_ms": 1.0, "ranked_results": [
+      {"id": "leaf-garden", "metadata": {"speaker": "Host", "episode_date": "2026-02-01", "node_type": "leaf_chunk", "source": "episode-garden"}},
+      {"id": "leaf-ai", "metadata": {"speaker": "Host", "episode_date": "2026-01-01", "node_type": "leaf_chunk", "source": "episode-ai"}}
+    ]}
   ]
 }

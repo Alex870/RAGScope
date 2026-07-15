@@ -4,26 +4,11 @@ import argparse
 import json
 from pathlib import Path
 
-from .evaluation import JudgedDataset, aggregate_metric, promotion_decision, retrieval_metrics
+from .evaluation import compare_reports, evaluate as evaluate_report, render_comparison_markdown
 
 
 def evaluate(dataset_path: Path, results_path: Path) -> dict:
-    dataset = JudgedDataset.load(dataset_path)
-    payload = json.loads(results_path.read_text(encoding="utf-8"))
-    by_query = {str(item["query_id"]): item for item in payload.get("results", [])}
-    rows = []
-    for query in dataset.queries:
-        result = by_query.get(query.query_id, {})
-        rows.append({"query_id": query.query_id, **retrieval_metrics(query, [str(item) for item in result.get("ranked_ids", [])])})
-    aggregate = {name: aggregate_metric(rows, name) for name in ("ndcg@10", "recall@20", "precision@10", "mrr", "hit_rate@10", "primary_coverage@10", "false_primary_support@10")}
-    aggregate.update(
-        {
-            "constraint_accuracy": 1.0,
-            "median_latency_ms": float(payload.get("median_latency_ms", 1.0)),
-            "false_primary_support": aggregate["false_primary_support@10"],
-        }
-    )
-    return {"contract_version": "1.0", "dataset_id": dataset.dataset_id, "queries": rows, "aggregate": aggregate}
+    return evaluate_report(dataset_path, results_path)
 
 
 def main() -> int:
@@ -32,11 +17,19 @@ def main() -> int:
     parser.add_argument("results", type=Path)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--compare", type=Path, help="Compare the evaluated report with a baseline report")
+    parser.add_argument("--markdown", type=Path, help="Write a Markdown promotion report when comparing")
     args = parser.parse_args()
     report = evaluate(args.dataset, args.results)
-    if args.baseline:
-        baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
-        report["promotion"] = promotion_decision(baseline.get("aggregate", {}), report["aggregate"])
+    baseline_path = args.compare or args.baseline
+    if baseline_path:
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        comparison = compare_reports(baseline, report)
+        report["comparison"] = comparison
+        report["promotion"] = comparison["promotion"]
+        if args.markdown:
+            args.markdown.parent.mkdir(parents=True, exist_ok=True)
+            args.markdown.write_text(render_comparison_markdown(comparison), encoding="utf-8")
     text = json.dumps(report, indent=2, ensure_ascii=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

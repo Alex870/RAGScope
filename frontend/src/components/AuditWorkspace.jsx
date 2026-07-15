@@ -124,6 +124,8 @@ export function AuditWorkspace({ controller }) {
               {auditReport.database.levels.map((level) => <span className="tag" key={level.level}>{level.label}: {level.count}</span>)}
             </div>
           </section>
+          {auditReport.provenance ? <section><h3>Contract & Provenance</h3><dl className="audit-dl"><dt>Manifest</dt><dd>{auditReport.provenance.manifest?.manifest_version || "unavailable"}</dd><dt>Representation</dt><dd>{auditReport.provenance.representation_id || "incomplete"}</dd><dt>Speaker completeness</dt><dd>{Math.round(Number(auditReport.provenance.speaker_date_completeness?.speaker || 0) * 100)}%</dd><dt>Date completeness</dt><dd>{Math.round(Number(auditReport.provenance.speaker_date_completeness?.episode_date || 0) * 100)}%</dd></dl>{(auditReport.provenance.hard_violations || []).map((item) => <p className="error-text" key={item}>{item}</p>)}{(auditReport.provenance.incomplete_but_readable || []).map((item) => <p className="muted" key={item}>{item}</p>)}</section> : null}
+          {auditReport.visualization ? <section><h3>Visualization Audit</h3><p className="muted">{auditReport.visualization.interpretation}</p><dl className="audit-dl"><dt>Reducer</dt><dd>{auditReport.visualization.reducer?.method || "unknown"}</dd><dt>Clustering</dt><dd>{auditReport.visualization.clustering?.method || "unknown"}</dd><dt>Seeds</dt><dd>{JSON.stringify(auditReport.visualization.seeds)}</dd></dl></section> : null}
           <section>
             <h3>Retrieval Benchmarks</h3>
             <div className="compare-grid">

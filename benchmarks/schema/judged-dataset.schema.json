@@ -4,10 +4,22 @@
   "type": "object",
   "required": ["contract_version", "dataset_id", "name", "corpus_fingerprint", "queries"],
   "properties": {
+    "format": {"const": "podcast-evaluation-pack-v1"},
     "contract_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
     "dataset_id": {"type": "string"},
     "name": {"type": "string"},
     "corpus_fingerprint": {"type": "string"},
-    "queries": {"type": "array"}
+    "queries": {"type": "array", "items": {"type": "object", "required": ["query", "query_id", "judgments"], "properties": {
+      "query_id": {"type": "string"},
+      "query": {"type": "string"},
+      "answerable": {"type": "boolean"},
+      "expected_speakers": {"type": "array", "items": {"type": "string"}},
+      "expected_node_types": {"type": "array", "items": {"type": "string"}},
+      "acceptable_evidence_sets": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+      "hard_negative_ids": {"type": "array", "items": {"type": "string"}},
+      "provenance": {"enum": ["human", "generated", "synthetic", "imported"]},
+      "adjudication_state": {"enum": ["pending", "accepted", "rejected", "disputed"]},
+      "judgments": {"type": "array", "items": {"type": "object", "required": ["document_id", "source_span_id", "grade"]}}
+    }}}
   }
 }
