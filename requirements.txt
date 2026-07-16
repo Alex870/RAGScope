@@ -1,11 +1,12 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-chromadb>=1.0
-sentence-transformers>=3.0
-pandas>=2.2
-numpy>=1.26
-plotly>=5.24
-umap-learn>=0.5
-scikit-learn>=1.5
-hdbscan>=0.8; platform_system != "Windows"
-pydantic>=2.8
+# Direct dependency pins resolved for the Stage 10 clean-machine baseline.
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+chromadb==1.5.9
+sentence-transformers==5.6.0
+pandas==3.0.3
+numpy==2.4.6
+plotly==6.9.0
+umap-learn==0.5.12
+scikit-learn==1.9.0
+hdbscan==0.8.44; platform_system != "Windows"
+pydantic==2.13.4
