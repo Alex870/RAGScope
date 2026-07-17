@@ -13,6 +13,8 @@ The app visualizes embedded document chunks, clusters semantic neighborhoods, la
 
 The Python direct dependencies are exact-pinned in `requirements.txt`. The frontend uses the checked-in `package-lock.json` (or `pnpm-lock.yaml`), and `Run RAGScope.ps1` owns backend cleanup on normal close and PowerShell exit. The Stage 10 diagnostic validates both frontend installation/build and the synthetic benchmark; large-collection diagnostics remain an explicit target-machine check.
 
+The local `podcast-evaluation-pack-v1` reference manifest, readiness validator, and normalized run identity are documented in [`docs/evaluation-pack-v1.md`](docs/evaluation-pack-v1.md).
+
 ## Screenshots
 
 ### 2D Semantic Map

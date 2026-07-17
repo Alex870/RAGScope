@@ -61,6 +61,7 @@ from .services.search_service import (
 from .state import WorkspaceState
 from .visualization import categorical_color_map
 from .evaluation import (
+    EvaluationPack,
     JudgedDataset,
     ExperimentManifest,
     ExperimentStore,
@@ -162,6 +163,22 @@ def validate_evaluation_identities(payload: dict[str, Any]) -> dict[str, Any]:
             if available_spans and str(judgment.get("source_span_id")) not in available_spans:
                 stale_spans.append(str(judgment.get("source_span_id")))
     return {"stale_document_ids": sorted(set(stale_documents)), "stale_source_span_ids": sorted(set(stale_spans))}
+
+
+@app.post("/api/evaluation/packs/validate")
+def validate_evaluation_pack(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        path = Path(str(payload.get("path") or ""))
+        if not path.is_file():
+            raise ValueError(f"Evaluation pack does not exist: {path}")
+        pack = EvaluationPack.load(path)
+        return pack.validate(
+            Path(str(payload.get("base_path") or path.parent)),
+            available_document_ids=payload.get("available_document_ids") or [],
+            available_source_span_ids=payload.get("available_source_span_ids") or [],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid evaluation pack: {exc}") from exc
 
 
 @app.post("/api/evaluation/diagnostics")

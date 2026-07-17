@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Podcast Evaluation Pack v1",
+  "type": "object",
+  "required": ["format", "pack_id", "created_at", "updated_at", "episodes", "dataset"],
+  "properties": {
+    "format": {"const": "podcast-evaluation-pack-v1"},
+    "pack_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "reviewer": {"type": "string"},
+    "episodes": {"type": "array", "items": {"type": "object", "required": ["episode_id", "source_path", "source_sha256"], "properties": {
+      "episode_id": {"type": "string"}, "source_path": {"type": "string"}, "source_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+      "transcript_path": {"type": "string"}, "transcript_sha256": {"type": "string"},
+      "audio_ranges": {"type": "array"}, "speakers": {"type": "array", "items": {"type": "string"}},
+      "speaker_aliases": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+      "glossary": {"type": "array", "items": {"type": "string"}}, "protected_terms": {"type": "array", "items": {"type": "string"}},
+      "conditions": {"type": "array", "items": {"type": "string"}}, "duration_seconds": {"type": ["number", "null"], "minimum": 0}, "notes": {"type": "string"}
+    }}},
+    "dataset": {"type": "object", "required": ["contract_version", "dataset_id", "name", "corpus_fingerprint", "queries"]}
+  }
+}

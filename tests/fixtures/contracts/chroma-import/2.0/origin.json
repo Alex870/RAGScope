@@ -1,0 +1,1 @@
+{"producer_repository":"Chroma DB Import","producer_commit":"8762afe","source_path":"tests/fixtures/golden_export","contract_version":"2.0","files":{"podcast.json":"27de8786deaf8e4de6d7db41a5f1c6bf1fd450dd942233f8694b24e00be32c2d","import_manifest.json":"97bc34616d014195207ecd15765feea7bb305c70e2c64c32e34dbfdd647c3eb3"}}

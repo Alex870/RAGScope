@@ -1,0 +1,1 @@
+{"trace_version":"1.0","query":"What policy was discussed?","answer":"The episode discusses the policy.","retrieved_document_ids":["thesis_1","leaf_1"],"citations":[{"document_id":"leaf_1","source_segment_ids":["episode-1:segment:0"]}],"provider":"fixture","model":"deterministic-fixture"}

@@ -138,6 +138,147 @@ class JudgedDataset:
         return cls(queries=queries, **{key: value for key, value in payload.items() if key in allowed})
 
 
+@dataclass
+class EpisodeReference:
+    """Local-only episode identity; paths are references and content is never copied."""
+
+    episode_id: str
+    source_path: str
+    source_sha256: str
+    transcript_path: str = ""
+    transcript_sha256: str = ""
+    audio_ranges: list[dict[str, Any]] = field(default_factory=list)
+    speakers: list[str] = field(default_factory=list)
+    speaker_aliases: dict[str, list[str]] = field(default_factory=dict)
+    glossary: list[str] = field(default_factory=list)
+    protected_terms: list[str] = field(default_factory=list)
+    conditions: list[str] = field(default_factory=list)
+    duration_seconds: float | None = None
+    notes: str = ""
+
+
+@dataclass
+class EvaluationPack:
+    pack_id: str
+    dataset: JudgedDataset
+    episodes: list[EpisodeReference]
+    reviewer: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    format: str = EVALUATION_PACK_VERSION
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "format": self.format,
+            "pack_id": self.pack_id,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "reviewer": self.reviewer,
+            "episodes": [asdict(item) for item in self.episodes],
+            "dataset": self.dataset.as_dict(),
+        }
+
+    @property
+    def fingerprint(self) -> str:
+        payload = self.as_dict()
+        payload.pop("updated_at", None)
+        return canonical_hash(payload)
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.as_dict(), indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: Path) -> "EvaluationPack":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("format") != EVALUATION_PACK_VERSION:
+            raise ContractCompatibilityError(f"Unsupported evaluation pack format in {path}: {payload.get('format')}")
+        dataset_payload = dict(payload.get("dataset") or {})
+        queries = []
+        for item in dataset_payload.get("queries", []):
+            record = dict(item)
+            judgments = [EvidenceJudgment(**value) for value in record.pop("judgments", [])]
+            queries.append(JudgedQuery(judgments=judgments, **record))
+        allowed = {"name", "corpus_fingerprint", "dataset_id", "contract_version", "created_at", "pack_version"}
+        dataset = JudgedDataset(queries=queries, **{key: value for key, value in dataset_payload.items() if key in allowed})
+        return cls(
+            pack_id=str(payload.get("pack_id") or path.stem), dataset=dataset,
+            episodes=[EpisodeReference(**item) for item in payload.get("episodes", [])],
+            reviewer=str(payload.get("reviewer") or ""),
+            created_at=str(payload.get("created_at") or ""), updated_at=str(payload.get("updated_at") or ""),
+        )
+
+    def validate(
+        self, base_path: Path, *, available_document_ids: Iterable[str] = (), available_source_span_ids: Iterable[str] = ()
+    ) -> dict[str, Any]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        document_ids = set(map(str, available_document_ids))
+        span_ids = set(map(str, available_source_span_ids))
+        episode_status = []
+        for episode in self.episodes:
+            status = {"episode_id": episode.episode_id, "source_ready": False, "transcript_ready": False}
+            for kind, raw_path, expected_hash in (
+                ("source", episode.source_path, episode.source_sha256),
+                ("transcript", episode.transcript_path, episode.transcript_sha256),
+            ):
+                if not raw_path:
+                    if kind == "source": errors.append(f"{episode.episode_id}: source_path is missing")
+                    continue
+                resolved = Path(raw_path)
+                if not resolved.is_absolute(): resolved = base_path / resolved
+                if not resolved.exists():
+                    errors.append(f"{episode.episode_id}: {kind} path is missing: {resolved}")
+                    continue
+                actual = hashlib.sha256(resolved.read_bytes()).hexdigest()
+                if expected_hash and actual != expected_hash:
+                    errors.append(f"{episode.episode_id}: {kind} hash changed: expected {expected_hash}, got {actual}")
+                    continue
+                status[f"{kind}_ready"] = True
+            episode_status.append(status)
+        incomplete = []
+        stale_documents = []
+        stale_spans = []
+        for query in self.dataset.queries:
+            if not query.human_reviewed or query.adjudication_state != "accepted": incomplete.append(query.query_id)
+            if document_ids:
+                stale_documents.extend(item.document_id for item in query.judgments if item.document_id not in document_ids)
+            if span_ids:
+                stale_spans.extend(item.source_span_id for item in query.judgments if item.source_span_id not in span_ids)
+        if incomplete: warnings.append(f"Incomplete judgments: {', '.join(sorted(incomplete))}")
+        if stale_documents: errors.append(f"Stale evidence IDs: {', '.join(sorted(set(stale_documents)))}")
+        if stale_spans: errors.append(f"Stale source span IDs: {', '.join(sorted(set(stale_spans)))}")
+        readiness = {
+            "transcription": bool(self.episodes) and all(item["source_ready"] for item in episode_status),
+            "retrieval": bool(self.dataset.queries) and not incomplete and not stale_documents and not stale_spans,
+            "answer": bool(self.dataset.queries) and not incomplete and all(query.reference_claims or not query.answerable for query in self.dataset.queries),
+        }
+        return {"valid": not errors, "errors": errors, "warnings": warnings, "episodes": episode_status, "incomplete_query_ids": incomplete, "readiness": readiness, "pack_fingerprint": self.fingerprint}
+
+
+@dataclass(frozen=True)
+class NormalizedRunIdentity:
+    schema_version: str
+    corpus_fingerprint: str
+    evaluation_pack_fingerprint: str
+    source_commits: dict[str, str]
+    model_identities: dict[str, Any]
+    config_fingerprints: dict[str, str]
+    hardware_runtime: dict[str, Any]
+    started_at: str
+    ended_at: str
+    duration_seconds: float
+    raw_outcomes: list[dict[str, Any]]
+    aggregate_metrics: dict[str, Any]
+    warnings: list[str] = field(default_factory=list)
+    exclusions: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+
+    @property
+    def run_id(self) -> str:
+        return canonical_hash(asdict(self))
+
+
 def judged_dataset_fingerprint(dataset: JudgedDataset) -> str:
     rows = []
     for query in sorted(dataset.queries, key=lambda item: item.query_id):
