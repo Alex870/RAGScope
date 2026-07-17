@@ -14,3 +14,8 @@ def parse_delta(path:str|Path)->dict[str,Any]:
  if value.get("contract_version")!="processed-delta-v1": raise ArtifactContractError("unsupported processed delta")
  if any(x not in value.get("reasons",{}) for x in value.get("changed_document_ids",[])+value.get("removed_document_ids",[])): raise ArtifactContractError("delta reason missing")
  return value
+def parse_release(path:str|Path)->dict[str,Any]:
+ value=json.loads(Path(path).read_text(encoding="utf-8"))
+ if value.get("contract_version")!="corpus-release-v1": raise ArtifactContractError("unsupported corpus release")
+ if not value.get("release_id"): raise ArtifactContractError("release identity missing")
+ return value
