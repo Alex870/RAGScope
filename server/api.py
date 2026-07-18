@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.error
 import urllib.request
 import uuid
@@ -76,6 +77,7 @@ from .evaluation import (
     retrieval_metrics,
 )
 from .diagnostics import cluster_stability, embedding_quality, projection_diagnostics
+from .campaigns import CampaignError, CampaignStore, build_campaign, portable, trace_identity_graph
 from .explanations import create_counterfactual
 from .state import ClusteringSettings, ReductionSettings
 
@@ -91,6 +93,46 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+CAMPAIGN_ROOT = Path(os.environ.get("RAGSCOPE_CAMPAIGN_ROOT", Path(__file__).resolve().parents[1] / "campaigns"))
+
+def _campaign_store() -> CampaignStore:
+    roots = [item for item in os.environ.get("RAGSCOPE_SELECTED_ROOTS", "").split(os.pathsep) if item]
+    return CampaignStore(CAMPAIGN_ROOT, roots)
+
+@app.get("/api/evaluation/campaigns")
+def list_campaigns() -> dict[str, Any]: return {"campaigns": _campaign_store().list()}
+
+@app.post("/api/evaluation/campaigns")
+def create_campaign(payload: dict[str, Any]) -> dict[str, Any]:
+    try: return {"campaign": _campaign_store().save(build_campaign(**payload))}
+    except (CampaignError, TypeError) as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/api/evaluation/campaigns/import-pack")
+def import_campaign_pack(payload: dict[str, Any]) -> dict[str, Any]:
+    try: return _campaign_store().import_pack(payload["path"])
+    except (CampaignError, KeyError, OSError, json.JSONDecodeError) as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/api/evaluation/campaigns/{campaign_id}/transition/{state}")
+def transition_campaign(campaign_id: str, state: str) -> dict[str, Any]:
+    try: return {"campaign": _campaign_store().transition(campaign_id, state)}
+    except (CampaignError, OSError) as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@app.post("/api/evaluation/campaigns/{campaign_id}/runs")
+def register_campaign_run(campaign_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    try: return {"campaign": _campaign_store().register_run(campaign_id, payload)}
+    except (CampaignError, OSError) as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@app.post("/api/evaluation/campaigns/{campaign_id}/decision")
+def decide_campaign(campaign_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    try: return {"campaign": _campaign_store().decide(campaign_id, payload["decision"], payload["reviewer_pseudonym"])}
+    except (CampaignError, KeyError, OSError) as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@app.post("/api/evaluation/identity-graph")
+def campaign_identity_graph(payload: dict[str, Any]) -> dict[str, Any]: return trace_identity_graph(payload.get("artifacts", []))
+
+@app.post("/api/evaluation/campaigns/export")
+def export_campaign(payload: dict[str, Any]) -> dict[str, Any]: return {"campaign": portable(payload.get("campaign", {}))}
 
 
 @app.get("/api/health")
