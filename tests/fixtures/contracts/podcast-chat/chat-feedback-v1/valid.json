@@ -1,0 +1,8 @@
+{
+  "contract_version":"chat-feedback-v1","corpus_release_id":"release_a2d93846471b014d648ae859cf26762b3403bbb1973521fb04813545b7d74fc7",
+  "creates_adjudication_seed":true,"creates_relevance_judgment":false,
+  "feedback_id":"feedback_f78940537249628074576aceeb82d9683f4cf3369b3033df22f6c4a0db722149",
+  "producer":{"contract_version":"1","name":"podcast-chat"},"reason_category":"citation_mismatch","review_state":"needs_adjudication",
+  "reviewer_pseudonym":"reviewer-synthetic","selected_evidence_ids":["doc_58231c46050ef4317c9d945c9b10a0a4d87ae3e47d6c08c545474d69b0275774"],
+  "source_trace_id":"trace-synthetic-1","supersedes_feedback_id":null
+}

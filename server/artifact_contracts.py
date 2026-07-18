@@ -19,3 +19,8 @@ def parse_release(path:str|Path)->dict[str,Any]:
  if value.get("contract_version")!="corpus-release-v1": raise ArtifactContractError("unsupported corpus release")
  if not value.get("release_id"): raise ArtifactContractError("release identity missing")
  return value
+def parse_feedback(path:str|Path)->dict[str,Any]:
+ value=json.loads(Path(path).read_text(encoding="utf-8"))
+ if value.get("contract_version")!="chat-feedback-v1": raise ArtifactContractError("unsupported feedback")
+ if value.get("creates_relevance_judgment") is not False: raise ArtifactContractError("feedback cannot become an automatic judgment")
+ return value
