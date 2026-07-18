@@ -1,0 +1,7 @@
+{
+  "baseline_release_id":"release-baseline","campaign_id":"campaign_acc215fe1cfffc515f0922c0d89748331bc7dd94f018bf7b7c72595e6f20f161",
+  "candidate_release_id":"release-candidate","contract_version":"evaluation-campaign-v1","decision":null,
+  "gates":{"minimum_reviewed":1,"release_critical_query_ids":["q1"]},"pack_fingerprint":"pack-fingerprint-v1","pack_id":"pack-synthetic-v1",
+  "producer":{"contract_version":"1","name":"RAGScope"},"query_identity":"query-set-v1","readiness_snapshot":{},"results":{},
+  "rollback_recommendation":null,"run_ids":[],"stale_judgment_ids":[],"state":"draft"
+}

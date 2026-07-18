@@ -1,6 +1,6 @@
 import json,tempfile,unittest
 from pathlib import Path
-from server.campaigns import CampaignError,CampaignStore,build_campaign,compatible,portable,trace_identity_graph
+from server.campaigns import CampaignError,CampaignStore,build_campaign,compatible,migrate_legacy_dataset,migrate_legacy_experiment,portable,trace_identity_graph,validate_campaign
 class CampaignTests(unittest.TestCase):
  def test_state_machine_and_human_decision(self):
   with tempfile.TemporaryDirectory() as d:
@@ -22,4 +22,8 @@ class CampaignTests(unittest.TestCase):
    self.assertNotIn("C:\\\\private",json.dumps(portable({"path":"C:\\private\\x","raw_conversation":"secret"})))
  def test_identity_graph_links_chain(self):
   graph=trace_identity_graph([{"correction_set_id":"c","producer":{"name":"t"}},{"delta_id":"d","correction_set_ids":["c"],"producer":{"name":"r"}}]); self.assertIn({"parent":"c","child":"d"},graph["edges"])
+ def test_fixture_and_legacy_migrations(self):
+  fixture=json.loads((Path(__file__).parent/"fixtures/contracts/evaluation-campaign-v1/valid.json").read_text(encoding="utf-8")); validate_campaign(fixture)
+  self.assertTrue(migrate_legacy_dataset({"dataset_id":"d"})["migration"]["reduced_readiness"])
+  self.assertEqual("legacy-unpinned",migrate_legacy_experiment({"run_id":"r"})["corpus_release_id"])
 if __name__=="__main__": unittest.main()

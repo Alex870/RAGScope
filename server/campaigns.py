@@ -50,6 +50,14 @@ def trace_identity_graph(artifacts:list[Mapping[str,Any]])->dict[str,Any]:
   stale.extend({"judgment_id":str(j),"reason":f"affected by {identity}"} for j in artifact.get("stale_judgment_ids",[]))
  return {"nodes":nodes,"edges":edges,"stale_judgments":stale}
 
+def migrate_legacy_dataset(dataset:Mapping[str,Any])->dict[str,Any]:
+ value=deepcopy(dict(dataset)); fingerprint=hashlib.sha256(_canonical(value)).hexdigest()
+ return {"format":"podcast-evaluation-pack-v1","pack_id":"legacy_pack_"+fingerprint,"episodes":[],"dataset":value,"migration":{"reduced_readiness":True,"reason":"episode references require local review"}}
+
+def migrate_legacy_experiment(experiment:Mapping[str,Any])->dict[str,Any]:
+ value=deepcopy(dict(experiment))
+ return {"run_id":str(value.get("run_id") or _id(value,"legacy_run")),"pack_fingerprint":str(value.get("pack_fingerprint") or value.get("judged_dataset_fingerprint") or "legacy-unknown"),"corpus_release_id":str(value.get("corpus_release_id") or "legacy-unpinned"),"query_identity":str(value.get("query_identity") or value.get("query_set_sha256") or "legacy-unknown"),"legacy_source":value}
+
 class CampaignStore:
  def __init__(self,root:str|Path,selected_roots:list[str|Path]|None=None):
   self.root=Path(root); self.root.mkdir(parents=True,exist_ok=True); self.selected_roots=[Path(p).resolve() for p in (selected_roots or [])]
