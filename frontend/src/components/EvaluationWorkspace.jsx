@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { CampaignWorkspace } from "./CampaignWorkspace";
 
 const emptyQuery = () => ({
   query: "", query_class: "factual", answerable: true, expected_speakers: [], expected_node_types: [], date_start: "", date_end: "",
@@ -63,6 +64,7 @@ export function EvaluationWorkspace({ controller }) {
         <button type="button" onClick={() => controller.setWorkspaceMode("Explore")}>Open Explore</button><button type="button" onClick={() => controller.setWorkspaceMode("Audit Report")} disabled={!controller.auditReport}>Open Audit</button>
       </div>
       {error ? <p className="error-text">{error}</p> : null}
+      <CampaignWorkspace />
       <div className="audit-grid">
         <div className="audit-column"><section><h3>Datasets</h3><table className="mini-table"><tbody>{datasets.map((item) => <tr key={item.path} onClick={safe(() => loadDataset(item.dataset_id))}><td>{item.name || "Invalid"}</td><td>{item.queries ?? "n/a"}</td><td>{item.corpus_fingerprint || item.error}</td></tr>)}</tbody></table></section>
           <section><h3>Dataset Identity</h3><label>Name<input value={dataset.name} onChange={(e) => setDataset({ ...dataset, name: e.target.value })} /></label><label>Corpus fingerprint<input value={dataset.corpus_fingerprint} onChange={(e) => setDataset({ ...dataset, corpus_fingerprint: e.target.value })} /></label><p className="muted">Pack format: podcast-evaluation-pack-v1 · Query provenance is retained per query.</p></section>
