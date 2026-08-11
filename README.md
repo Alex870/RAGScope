@@ -15,6 +15,8 @@ The Python direct dependencies are exact-pinned in `requirements.txt`. The front
 
 The local `podcast-evaluation-pack-v1` reference manifest, readiness validator, and normalized run identity are documented in [`docs/evaluation-pack-v1.md`](docs/evaluation-pack-v1.md).
 
+RAGScope's ecosystem contract reader accepts transcription `correction-manifest-v1` and `correction-manifest-v2`. V2 correction notifications may be placed under `state/transcription_corrections`; affected source-span IDs are exposed as stale-judgment inputs so human evidence is routed back to adjudication instead of being silently carried across changed transcript text.
+
 ## Screenshots
 
 ### 2D Semantic Map
